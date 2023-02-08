@@ -47,6 +47,7 @@ jobs:
         run: |
           cd contarg/test/data
           cat .git
+          cat ../../../.git/modules/contarg/test/data/config
           datalad install .
           datalad update
           datalad siblings
