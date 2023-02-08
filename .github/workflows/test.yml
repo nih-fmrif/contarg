@@ -46,7 +46,9 @@ jobs:
       - name: Download Dataset
         run: |
           cd contarg/test/data 
+          tree
           datalad install . 
+          datalad siblings
           datalad get derivatives/fmriprep/sub-*/anat/sub-*_from-MNI152NLin6Asym_to-T1w_mode-image_xfm.h5 \
             derivatives/fmriprep/sub-*/anat/*preproc_T1w.* \
             derivatives/fmriprep/sub-*/func/*preproc_bold.* \
