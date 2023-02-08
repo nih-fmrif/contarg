@@ -126,6 +126,12 @@ jobs:
         run: pip install archive/archive.tgz
       - name: Install test extras
         run: pip install contarg[test]
+      - name: Restore Dataset
+        id: restore-dataset
+        uses: actions/cache/restore@v3
+        with:
+          path: ./contarg/test/data
+          key: ${{ runner.os }}-${{steps.get-smhash.outputs.smhash}}
       - name: Run tests
         run: pytest --doctest-modules -v --pyargs contarg
 
