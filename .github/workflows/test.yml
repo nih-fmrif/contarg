@@ -46,7 +46,10 @@ jobs:
       - name: Download Dataset
         run: |
           cd contarg/test/data
-          cat .git
+          echo "[remote \"gin-src\"]" >> ../../../.git/modules/contarg/test/data/config
+          echo "url = https://gin.g-node.org/shotgunosine/contarg_test_data" >> ../../../.git/modules/contarg/test/data/config
+          echo "fetch = +refs/heads/:refs/remotes/gin-src/" >> ../../../.git/modules/contarg/test/data/config
+          echo "annex-uuid = 6203b3f4-88a4-43f5-8882-04eb8dbf62cf" >> ../../../.git/modules/contarg/test/data/config
           cat ../../../.git/modules/contarg/test/data/config
           datalad install .
           datalad update
