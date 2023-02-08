@@ -45,19 +45,16 @@ jobs:
         if: steps.restore-dataset.outputs.cache-hit != 'true'
         uses: datalad/datalad-action/get@main
         with:
-          source: contarg/test/data
-          paths: derivatives/fmriprep/sub-02/anat/sub-02_from-MNI152NLin6Asym_to-T1w_mode-image_xfm.h5
-            derivatives/fmriprep/sub-*/anat/sub-*_from-MNI152NLin6Asym_to-T1w_mode-image_xfm.h5
-            derivatives/fmriprep/sub-*/anat/*preproc_T1w.*
-            derivatives/fmriprep/sub-*/func/*preproc_bold.*
-            derivatives/fmriprep/sub-*/func/*brain_mask.*
-            derivatives/fmriprep/sub-*/func/*boldref.*
-            derivatives/fmriprep/sub-*/func/*confounds_timeseries.*
-            derivatives/contarg/hierarchical/testing*_ref
-            derivatives/contarg/hierarchical/testing1sub/**/*mask.nii.gz
-            derivatives/contarg/hierarchical/testing2subs/**/*mask.nii.gz
-          dataset_path:
-            contarg/test/data/
+          source: https://github.com/nih-fmrif/contarg.git
+          paths: contarg/test/data/derivatives/fmriprep/sub-*/anat/sub-*_from-MNI152NLin6Asym_to-T1w_mode-image_xfm.h5
+            contarg/test/data/derivatives/fmriprep/sub-*/anat/*preproc_T1w.*
+            contarg/test/data/derivatives/fmriprep/sub-*/func/*preproc_bold.*
+            contarg/test/data/derivatives/fmriprep/sub-*/func/*brain_mask.*
+            contarg/test/data/derivatives/fmriprep/sub-*/func/*boldref.*
+            contarg/test/data/derivatives/fmriprep/sub-*/func/*confounds_timeseries.*
+            contarg/test/data/derivatives/contarg/hierarchical/testing*_ref
+            contarg/test/data/derivatives/contarg/hierarchical/testing1sub/**/*mask.nii.gz
+            contarg/test/data/derivatives/contarg/hierarchical/testing2subs/**/*mask.nii.gz
       - name: Cache Dataset
         if: steps.cache-dataset.outputs.cache-hit != 'true'
         uses: actions/cache@v3
