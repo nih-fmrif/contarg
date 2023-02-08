@@ -46,6 +46,7 @@ jobs:
       - name: Download Dataset
         run: |
           cd contarg/test/data 
+          ls -lta .
           cat .git/config
           datalad install .
           datalad update
