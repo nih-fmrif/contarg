@@ -45,7 +45,7 @@ jobs:
         if: steps.restore-dataset.outputs.cache-hit != 'true'
         uses: datalad/datalad-action/get@main
         with:
-          source: https://github.com/nih-fmrif/contarg.git
+          source: .
           paths: derivatives/fmriprep/sub-*/anat/sub-*_from-MNI152NLin6Asym_to-T1w_mode-image_xfm.h5
             derivatives/fmriprep/sub-*/anat/*preproc_T1w.*
             derivatives/fmriprep/sub-*/func/*preproc_bold.*
