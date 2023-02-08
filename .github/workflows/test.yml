@@ -43,15 +43,17 @@ jobs:
         uses: datalad/datalad-action/get@main
         with:
           source: https://github.com/nih-fmrif/contarg.git
-          paths: test/data/derivatives/fmriprep/sub-*/anat/sub-*_from-MNI152NLin6Asym_to-T1w_mode-image_xfm.h5
-            test/data/derivatives/fmriprep/sub-*/anat/*preproc_T1w.*
-            test/data/derivatives/fmriprep/sub-*/func/*preproc_bold.*
-            test/data/derivatives/fmriprep/sub-*/func/*brain_mask.*
-            test/data/derivatives/fmriprep/sub-*/func/*boldref.*
-            test/data/derivatives/fmriprep/sub-*/func/*confounds_timeseries.*
-            test/data/derivatives/contarg/hierarchical/testing*_ref
-            test/data/derivatives/contarg/hierarchical/testing1sub/**/*mask.nii.gz
-            test/data/derivatives/contarg/hierarchical/testing2subs/**/*mask.nii.gz
+          paths: derivatives/fmriprep/sub-*/anat/sub-*_from-MNI152NLin6Asym_to-T1w_mode-image_xfm.h5
+            derivatives/fmriprep/sub-*/anat/*preproc_T1w.*
+            derivatives/fmriprep/sub-*/func/*preproc_bold.*
+            derivatives/fmriprep/sub-*/func/*brain_mask.*
+            derivatives/fmriprep/sub-*/func/*boldref.*
+            derivatives/fmriprep/sub-*/func/*confounds_timeseries.*
+            derivatives/contarg/hierarchical/testing*_ref
+            derivatives/contarg/hierarchical/testing1sub/**/*mask.nii.gz
+            derivatives/contarg/hierarchical/testing2subs/**/*mask.nii.gz
+          dataset_path:
+            contarg/test/data
       - name: Cache Dataset
         if: steps.cache-dataset.outputs.cache-hit != 'true'
         uses: actions/cache@v3
