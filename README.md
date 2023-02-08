@@ -4,9 +4,17 @@ A python package implementing/wrapping methods for functional connectivity perso
 
 ## Getting test data
 ```commandline
-datalad clone ///openneuro/ds002330
-cd ds002330/sub-02
-datalad get -r .
+git submodule init
+git submodule update
+datalad get  contarg/test/data/derivatives/fmriprep/sub-*/anat/sub-*_from-MNI152NLin6Asym_to-T1w_mode-image_xfm.h5 \ 
+            contarg/test/data/derivatives/fmriprep/sub-*/anat/*preproc_T1w.* \
+            contarg/test/data/derivatives/fmriprep/sub-*/func/*preproc_bold.* \
+            contarg/test/data/derivatives/fmriprep/sub-*/func/*brain_mask.* \
+            contarg/test/data/derivatives/fmriprep/sub-*/func/*boldref.* \
+            contarg/test/data/derivatives/fmriprep/sub-*/func/*confounds_timeseries.* \
+            contarg/test/data/derivatives/contarg/hierarchical/testing*_ref \
+            contarg/test/data/derivatives/contarg/hierarchical/testing1sub/**/*mask.nii.gz \
+            contarg/test/data/derivatives/contarg/hierarchical/testing2subs/**/*mask.nii.gz 
 ```
 
 

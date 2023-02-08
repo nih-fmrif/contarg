@@ -22,6 +22,47 @@ permissions:
   contents: read
 
 jobs:
+  get-dataset:
+    runs-on: ubuntu-latest
+    name: Datalad install and get
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          submodules: recursive
+      - name: Get Submodule Hash
+        id: get-smhash
+        run: |
+           echo "smhash=$(git submodule status contarg/test/data)" >> $GITHUB_OUTPUT
+      - name: Cache Dataset
+        id: cache-dataset
+        use: actions/cache@v3
+        with:
+          path: ./contarg/test/data
+          key: ${{ runner.os }}-${{steps.get-smhash.outputs.smhash}}
+      - name: Download Dataset
+        if: steps.cache-dataset.outputs.cache-hit != 'true'
+        uses: datalad/datalad-action/get@main
+        with:
+          source: contarg/test/data
+          paths:
+            - contarg/test/data/derivatives/fmriprep/sub-*/anat/sub-*_from-MNI152NLin6Asym_to-T1w_mode-image_xfm.h5
+            - contarg/test/data/derivatives/fmriprep/sub-*/anat/*preproc_T1w.*
+            - contarg/test/data/derivatives/fmriprep/sub-*/func/*preproc_bold.*
+            - contarg/test/data/derivatives/fmriprep/sub-*/func/*brain_mask.*
+            - contarg/test/data/derivatives/fmriprep/sub-*/func/*boldref.*
+            - contarg/test/data/derivatives/fmriprep/sub-*/func/*confounds_timeseries.*
+            - contarg/test/data/derivatives/contarg/hierarchical/testing*_ref
+            - contarg/test/data/derivatives/contarg/hierarchical/testing1sub/**/*mask.nii.gz
+            - contarg/test/data/derivatives/contarg/hierarchical/testing2subs/**/*mask.nii.gz
+      - name: Cache Dataset
+        if: steps.cache-dataset.outputs.cache-hit != 'true'
+        use: actions/cache@v3
+        with:
+          path: ./contarg/test/data
+          key: ${{ runner.os }}-${{steps.get-smhash.outputs.smhash}}
+
+
   build:
     runs-on: ubuntu-latest
     steps:
@@ -50,7 +91,7 @@ jobs:
 
   test-package:
     runs-on: ubuntu-latest
-    needs: [build]
+    needs: [get-dataset, build]
     strategy:
       matrix:
         package: ['wheel', 'sdist', 'archive']

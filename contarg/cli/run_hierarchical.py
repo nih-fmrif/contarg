@@ -304,7 +304,7 @@ def run(
             extension=".h5",
             suffix="xfm",
             to="T1w",
-            **{"from": "MNI152NLin2009cAsym"},
+            **{"from": "MNI152NLin6Asym"},
         )
     )
     assert rest_paths.mnitoT1w.apply(lambda x: len(x) == 1).all()
@@ -413,12 +413,14 @@ def run(
                 make_parent=True,
             )
         )
-        rest_paths["clnref_mask_exists"] = False
+        rest_paths["clnref_mask_exists"] = rest_paths.clnref_mask.apply(
+            lambda x: x.exists()
+        )
 
     else:
         # TODO: clean this up for custom ROIs
         clnref_roi_2mm_path = (
-            roi_dir / f"{ref_roi_name + 'masked'}_space-MNI152NLin6Asym_res-02.nii.gz"
+            roi_dir / f"{refroi_name + 'masked'}_space-MNI152NLin6Asym_res-02.nii.gz"
         )
         rest_paths[f"stim_mask"] = stim_roi_2mm_path
         rest_paths["stim_mask_exists"] = True

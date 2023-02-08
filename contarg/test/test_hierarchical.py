@@ -33,6 +33,8 @@ def test_single_subject():
             "--njobs=2",
         ],
     )
+    if result.exit_code != 0:
+        print(result.exception, flush=True)
     assert result.exit_code == 0
     output_dir = (
         derivatives_dir / "contarg" / "hierarchical" / "testing1sub" / "sub-02" / "func"
