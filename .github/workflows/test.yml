@@ -47,14 +47,14 @@ jobs:
         run: |
           cd contarg/test/data 
           datalad install . 
-          datalad get derivatives/fmriprep/sub-*/anat/sub-*_from-MNI152NLin6Asym_to-T1w_mode-image_xfm.h5 
-            derivatives/fmriprep/sub-*/anat/*preproc_T1w.* 
-            derivatives/fmriprep/sub-*/func/*preproc_bold.* 
-            derivatives/fmriprep/sub-*/func/*brain_mask.* 
-            derivatives/fmriprep/sub-*/func/*boldref.* 
-            derivatives/fmriprep/sub-*/func/*confounds_timeseries.* 
-            derivatives/contarg/hierarchical/testing*_ref 
-            derivatives/contarg/hierarchical/testing1sub/**/*mask.nii.gz 
+          datalad get derivatives/fmriprep/sub-*/anat/sub-*_from-MNI152NLin6Asym_to-T1w_mode-image_xfm.h5 \
+            derivatives/fmriprep/sub-*/anat/*preproc_T1w.* \
+            derivatives/fmriprep/sub-*/func/*preproc_bold.* \
+            derivatives/fmriprep/sub-*/func/*brain_mask.* \
+            derivatives/fmriprep/sub-*/func/*boldref.* \
+            derivatives/fmriprep/sub-*/func/*confounds_timeseries.* \
+            derivatives/contarg/hierarchical/testing*_ref \
+            derivatives/contarg/hierarchical/testing1sub/**/*mask.nii.gz \
             derivatives/contarg/hierarchical/testing2subs/**/*mask.nii.gz
       - name: Cache Dataset
         if: steps.cache-dataset.outputs.cache-hit != 'true'
