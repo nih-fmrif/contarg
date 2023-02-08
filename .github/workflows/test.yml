@@ -45,9 +45,8 @@ jobs:
         uses: datalad/datalad-action/install@main
       - name: Download Dataset
         run: |
-          cd contarg/test/data 
-          ls -lta .git
-          cat .git/config
+          cd contarg/test/data
+          cat .git
           datalad install .
           datalad update
           datalad siblings
