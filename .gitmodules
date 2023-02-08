@@ -1,0 +1,3 @@
+[submodule "contarg/test/data"]
+	path = contarg/test/data
+	url = git@gin.g-node.org:/shotgunosine/contarg_test_data.git
