@@ -55,7 +55,7 @@ jobs:
             derivatives/contarg/hierarchical/testing1sub/**/*mask.nii.gz
             derivatives/contarg/hierarchical/testing2subs/**/*mask.nii.gz
           dataset_path:
-            contarg/test/data/
+            test/data/
       - name: Cache Dataset
         if: steps.cache-dataset.outputs.cache-hit != 'true'
         uses: actions/cache@v3
