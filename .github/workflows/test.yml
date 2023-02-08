@@ -46,8 +46,7 @@ jobs:
       - name: Download Dataset
         run: |
           cd contarg/test/data
-          git annex init
-          git annex enableremote gin-src
+          datalad siblings add -s gin-src --url=https://gin.g-node.org/shotgunosine/contarg_test_data --fetch
           datalad siblings
           datalad get derivatives/fmriprep/sub-*/anat/sub-*_from-MNI152NLin6Asym_to-T1w_mode-image_xfm.h5 \
             derivatives/fmriprep/sub-*/anat/*preproc_T1w.* \
