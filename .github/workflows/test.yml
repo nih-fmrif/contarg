@@ -36,7 +36,7 @@ jobs:
            echo "smhash=$(git submodule status contarg/test/data)" >> $GITHUB_OUTPUT
       - name: Cache Dataset
         id: cache-dataset
-        use: actions/cache@v3
+        uses: actions/cache@v3
         with:
           path: ./contarg/test/data
           key: ${{ runner.os }}-${{steps.get-smhash.outputs.smhash}}
@@ -57,7 +57,7 @@ jobs:
             - contarg/test/data/derivatives/contarg/hierarchical/testing2subs/**/*mask.nii.gz
       - name: Cache Dataset
         if: steps.cache-dataset.outputs.cache-hit != 'true'
-        use: actions/cache@v3
+        uses: actions/cache@v3
         with:
           path: ./contarg/test/data
           key: ${{ runner.os }}-${{steps.get-smhash.outputs.smhash}}
