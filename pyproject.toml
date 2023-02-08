@@ -1,0 +1,65 @@
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+[project]
+name = "contarg"
+description = "Python package implementing/wrapping connectivity based rTMS targeting methods."
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text="CC)" }
+authors = [
+  { name="Dylan Nielson", email="adenosine@gmail.com" },
+]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.8",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+]
+
+dynamic = ["version"]
+
+dependencies = [
+  'numpy >= 1.24.1',
+  'pandas >= 1.5.3',
+  'joblib >= 1.2.0',
+  'nilearn >= 0.10.0 ',
+  'scikit-learn >= 1.2.1',
+  'scipy >= 1.10.0',
+  'pybids == 0.15.2',
+  'click >= 8.1.3',
+  'niworkflows >= 1.7.1'
+]
+
+[project.optional-dependencies]
+test = [
+  'pytest'
+]
+dev = [
+  'black ~= 23.1.0',
+  'hatch ~= 1.6.3'
+]
+
+
+[project.urls]
+"Homepage" = "https://github.com/nih-fmrif/contarg"
+
+[project.scripts]
+contarg = "contarg.cli.cli:contarg"
+
+[tool.hatch.version]
+source = "vcs"
+
+[tool.hatch.build.hooks.vcs]
+version-file = "contarg/_version.py"
+
+[tool.hatch.build.targets.sdist]
+exclude = [".git_archival.txt"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["contarg"]
+exclude = [
+  "contarg/test/data"
+]
