@@ -46,21 +46,7 @@ jobs:
         uses: datalad/datalad-action/install@main
       - name: Download Dataset
         run: |
-          datalad get contarg/test/data/derivatives/fmriprep/sub-*/anat/sub-*_from-MNI152NLin6Asym_to-T1w_mode-image_xfm.h5 \
-            contarg/test/data/derivatives/fmriprep/sub-*/anat/*preproc_T1w.* \
-            contarg/test/data/derivatives/fmriprep/sub-*/func/*preproc_bold.* \
-            contarg/test/data/derivatives/fmriprep/sub-*/func/*brain_mask.* \
-            contarg/test/data/derivatives/fmriprep/sub-*/func/*boldref.* \
-            contarg/test/data/derivatives/fmriprep/sub-*/func/*confounds_timeseries.* \
-            contarg/test/data/derivatives/contarg/hierarchical/testing*_ref \
-            contarg/test/data/derivatives/contarg/hierarchical/testing1sub/**/*mask.nii.gz \
-            contarg/test/data/derivatives/contarg/hierarchical/testing2subs/**/*mask.nii.gz
-      - name: Cache Dataset
-        if: steps.cache-dataset.outputs.cache-hit != 'true'
-        uses: actions/cache@v3
-        with:
-          path: ./contarg/test/data
-          key: ${{ runner.os }}-${{steps.get-smhash.outputs.smhash}}
+          datalad get contarg/test/data/derivatives/fmriprep/sub-*/func/*brain_mask.*
 
 
   build:
