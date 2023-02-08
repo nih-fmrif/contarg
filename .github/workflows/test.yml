@@ -47,7 +47,12 @@ jobs:
       - name: Download Dataset
         run: |
           datalad get contarg/test/data/derivatives/fmriprep/sub-*/func/*brain_mask.*
-
+      - name: Cache Dataset
+        if: steps.cache-dataset.outputs.cache-hit != 'true'
+        uses: actions/cache@v3
+        with:
+          path: ./contarg/test/data
+          key: ${{ runner.os }}-${{steps.get-smhash.outputs.smhash}}-testdl
 
   build:
     runs-on: ubuntu-latest
