@@ -35,13 +35,12 @@ dependencies = [
 
 [project.optional-dependencies]
 test = [
+  'datalad',
   'pytest'
 ]
 dev = [
   'black ~= 23.1.0',
-  'hatch ~= 1.6.3'
 ]
-
 
 [project.urls]
 "Homepage" = "https://github.com/nih-fmrif/contarg"
