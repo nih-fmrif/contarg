@@ -36,7 +36,7 @@ jobs:
            echo "smhash=$(git submodule status contarg/test/data)" >> $GITHUB_OUTPUT
       - name: Cache Dataset
         id: restore-dataset
-        uses: actions/restore@v3
+        uses: actions/cache/restore@v3
         with:
           path: ./contarg/test/data
           key: ${{ runner.os }}-${{steps.get-smhash.outputs.smhash}}
