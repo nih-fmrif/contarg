@@ -53,8 +53,8 @@ jobs:
             contarg/test/data/derivatives/fmriprep/sub-*/func/*boldref.* \
             contarg/test/data/derivatives/fmriprep/sub-*/func/*confounds_timeseries.* \
             contarg/test/data/derivatives/contarg/hierarchical/testing*_ref \
-            contarg/test/data/derivatives/contarg/hierarchical/testing1sub/**/*mask.nii.gz \
-            contarg/test/data/derivatives/contarg/hierarchical/testing2subs/**/*mask.nii.gz
+            contarg/test/data/derivatives/contarg/hierarchical/testing1sub/sub-*/func/*mask.nii.gz \
+            contarg/test/data/derivatives/contarg/hierarchical/testing2subs/sub-*/func/*mask.nii.gz
       - name: Cache Dataset
         if: steps.cache-dataset.outputs.cache-hit != 'true'
         uses: actions/cache@v3
