@@ -54,6 +54,7 @@ jobs:
         if: steps.restore-dataset.outputs.cache-hit != 'true'
         uses: datalad/datalad-action/install@main
       - name: Download Dataset
+        if: steps.restore-dataset.outputs.cache-hit != 'true'
         run: |
           datalad get contarg/test/data/derivatives/fmriprep/sub-*/anat/sub-*_from-MNI152NLin6Asym_to-T1w_mode-image_xfm.h5 \
             contarg/test/data/derivatives/fmriprep/sub-*/anat/*preproc_T1w.* \
