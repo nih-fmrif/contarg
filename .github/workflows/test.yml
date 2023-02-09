@@ -9,6 +9,13 @@ on:
     branches:
       - main
       - maint/*
+  workflow_dispatch:
+    inputs:
+      debug_enabled:
+        type: boolean
+        description: 'Run the build with tmate debugging enabled (https://github.com/marketplace/actions/debugging-with-tmate)'
+        required: false
+        default: false
 
 defaults:
   run:
@@ -30,6 +37,7 @@ jobs:
         uses: actions/checkout@v3
         with:
           submodules: recursive
+          fetch-depth: 0
       - name: Get Submodule Hash
         id: get-smhash
         run: |
@@ -38,30 +46,32 @@ jobs:
         id: restore-dataset
         uses: actions/cache/restore@v3
         with:
-          path: ./contarg/test/data
+          path: | 
+            ./contarg/test/data
+            .git/annex/objects
           key: ${{ runner.os }}-${{steps.get-smhash.outputs.smhash}}
       - name: Install datalad
         if: steps.restore-dataset.outputs.cache-hit != 'true'
         uses: datalad/datalad-action/install@main
       - name: Download Dataset
+        if: steps.restore-dataset.outputs.cache-hit != 'true'
         run: |
-          cd contarg/test/data
-          datalad siblings add -s gin-src --url=https://gin.g-node.org/shotgunosine/contarg_test_data --fetch
-          datalad siblings
-          datalad get derivatives/fmriprep/sub-*/anat/sub-*_from-MNI152NLin6Asym_to-T1w_mode-image_xfm.h5 \
-            derivatives/fmriprep/sub-*/anat/*preproc_T1w.* \
-            derivatives/fmriprep/sub-*/func/*preproc_bold.* \
-            derivatives/fmriprep/sub-*/func/*brain_mask.* \
-            derivatives/fmriprep/sub-*/func/*boldref.* \
-            derivatives/fmriprep/sub-*/func/*confounds_timeseries.* \
-            derivatives/contarg/hierarchical/testing*_ref \
-            derivatives/contarg/hierarchical/testing1sub/**/*mask.nii.gz \
-            derivatives/contarg/hierarchical/testing2subs/**/*mask.nii.gz
+          datalad get contarg/test/data/derivatives/fmriprep/sub-*/anat/sub-*_from-MNI152NLin6Asym_to-T1w_mode-image_xfm.h5 \
+            contarg/test/data/derivatives/fmriprep/sub-*/anat/*preproc_T1w.* \
+            contarg/test/data/derivatives/fmriprep/sub-*/func/*preproc_bold.* \
+            contarg/test/data/derivatives/fmriprep/sub-*/func/*brain_mask.* \
+            contarg/test/data/derivatives/fmriprep/sub-*/func/*boldref.* \
+            contarg/test/data/derivatives/fmriprep/sub-*/func/*confounds_timeseries.* \
+            contarg/test/data/derivatives/contarg/hierarchical/testing*_ref \
+            contarg/test/data/derivatives/contarg/hierarchical/testing1sub/sub-*/func/*mask.nii.gz \
+            contarg/test/data/derivatives/contarg/hierarchical/testing2subs/sub-*/func/*mask.nii.gz
       - name: Cache Dataset
-        if: steps.cache-dataset.outputs.cache-hit != 'true'
-        uses: actions/cache@v3
+        if: steps.restore-dataset.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v3
         with:
-          path: ./contarg/test/data
+          path: |
+            ./contarg/test/data
+            .git/annex/objects
           key: ${{ runner.os }}-${{steps.get-smhash.outputs.smhash}}
 
 
@@ -128,6 +138,17 @@ jobs:
         run: pip install archive/archive.tgz
       - name: Install test extras
         run: pip install contarg[test]
+      - name: Restore Dataset
+        id: restore-dataset
+        uses: actions/cache/restore@v3
+        with:
+          path: |
+            ./contarg/test/data
+            .git/annex/objects
+          key: ${{ runner.os }}-${{steps.get-smhash.outputs.smhash}}
+      - name: Setup tmate session
+        uses: mxschmitt/action-tmate@v3
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.debug_enabled }}
       - name: Run tests
         run: pytest --doctest-modules -v --pyargs contarg
 
