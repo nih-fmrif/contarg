@@ -48,7 +48,7 @@ jobs:
         with:
           path: | 
             ./contarg/test/data
-            .git/annex/objects
+            .git/modules/contarg/test/data
           key: ${{ runner.os }}-${{steps.get-smhash.outputs.smhash}}
       - name: Install datalad
         if: steps.restore-dataset.outputs.cache-hit != 'true'
@@ -71,7 +71,7 @@ jobs:
         with:
           path: |
             ./contarg/test/data
-            .git/annex/objects
+            .git/modules/contarg/test/data
           key: ${{ runner.os }}-${{steps.get-smhash.outputs.smhash}}
 
 
@@ -144,7 +144,7 @@ jobs:
         with:
           path: |
             ./contarg/test/data
-            .git/annex/objects
+            .git/modules/contarg/test/data
           key: ${{ runner.os }}-${{steps.get-smhash.outputs.smhash}}
       - name: Setup tmate session
         uses: mxschmitt/action-tmate@v3
