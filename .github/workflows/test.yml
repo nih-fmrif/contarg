@@ -66,7 +66,7 @@ jobs:
             contarg/test/data/derivatives/contarg/hierarchical/testing1sub/sub-*/func/*mask.nii.gz \
             contarg/test/data/derivatives/contarg/hierarchical/testing2subs/sub-*/func/*mask.nii.gz
       - name: Cache Dataset
-        if: steps.cache-dataset.outputs.cache-hit != 'true'
+        if: steps.restore-dataset.outputs.cache-hit != 'true'
         uses: actions/cache/save@v3
         with:
           path: |
