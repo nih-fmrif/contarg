@@ -9,6 +9,14 @@ on:
     branches:
       - main
       - maint/*
+  on:
+    workflow_dispatch:
+      inputs:
+        debug_enabled:
+          type: boolean
+          description: 'Run the build with tmate debugging enabled (https://github.com/marketplace/actions/debugging-with-tmate)'
+          required: false
+          default: false
 
 defaults:
   run:
@@ -138,6 +146,9 @@ jobs:
             ./contarg/test/data
             .git/annex/objects
           key: ${{ runner.os }}-${{steps.get-smhash.outputs.smhash}}
+      - name: Setup tmate session
+        uses: mxschmitt/action-tmate@v3
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.debug_enabled }}
       - name: Run tests
         run: pytest --doctest-modules -v --pyargs contarg
 
