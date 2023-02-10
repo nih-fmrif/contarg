@@ -6,10 +6,9 @@ from pathlib import Path
 from .utils import iterable
 
 
-def get_ref_vox_con(bold_path, mask_path, out_path,
-                    refroi_path,
-                    tr,
-                    smoothing_fwhm=4.0):
+def get_ref_vox_con(
+    bold_path, mask_path, out_path, refroi_path, tr, smoothing_fwhm=4.0
+):
     """
     Get the voxel wise connectivity map of a passed bold image with the reference roi.
     If an iterable of bold_paths is passed,they'll be concatenated. Runs global signal regression.
@@ -37,22 +36,20 @@ def get_ref_vox_con(bold_path, mask_path, out_path,
     subj_mask = nl.image.load_img(mask_path)
     ref_mask = nl.image.load_img(refroi_path)
     masked_ref_mask = nl.masking.apply_mask(ref_mask, subj_mask)
-    gs_masker = nl.maskers.NiftiMasker(mask_img=subj_mask
-                                       )
-    subj_masker = nl.maskers.NiftiMasker(mask_img=subj_mask,
-                                         low_pass=0.1,
-                                         high_pass=0.01,
-                                         smoothing_fwhm=smoothing_fwhm,
-                                         t_r=tr,
-                                         standardize=True
-                                         )
+    gs_masker = nl.maskers.NiftiMasker(mask_img=subj_mask)
+    subj_masker = nl.maskers.NiftiMasker(
+        mask_img=subj_mask,
+        low_pass=0.1,
+        high_pass=0.01,
+        smoothing_fwhm=smoothing_fwhm,
+        t_r=tr,
+        standardize=True,
+    )
     # process each run
     clean_tses = []
     for bold_path in bold_paths:
-        gs = gs_masker.fit_transform(bold_path).mean(1).reshape(-1,1)
-        cleaned = subj_masker.fit_transform(bold_path,
-                                        confounds=gs
-                                       )
+        gs = gs_masker.fit_transform(bold_path).mean(1).reshape(-1, 1)
+        cleaned = subj_masker.fit_transform(bold_path, confounds=gs)
         clean_tses.append(cleaned)
     cat_clean_tses = np.vstack(clean_tses)
     ref_ts = cat_clean_tses[:, masked_ref_mask.astype(bool)].mean(1).reshape(-1, 1)

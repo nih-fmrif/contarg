@@ -198,9 +198,9 @@ def idxs_to_flat(idxs, mask_path):
     assert len(flat_clust) == (mask_dat != 0).sum()
     return flat_clust
 
+
 def iterable(arg):
     # from https://stackoverflow.com/a/44328500
-    return (
-        isinstance(arg, collections.Iterable)
-        and not isinstance(arg, six.string_types)
+    return isinstance(arg, collections.Iterable) and not isinstance(
+        arg, six.string_types
     )
