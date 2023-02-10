@@ -56,16 +56,18 @@ jobs:
       - name: Download Dataset
         if: steps.restore-dataset.outputs.cache-hit != 'true'
         run: |
-          datalad get contarg/test/data/derivatives/contarg/hierarchical/testing2subs/sub-*/func/*mask.nii.gz \
-          contarg/test/data/**.json \
-          contarg/test/data/**.tsv \
+          datalad get -r contarg/test/data/derivatives/contarg/hierarchical/testing2subs/sub-*/func/*mask.nii.gz \
+          contarg/test/data/ds002330/*.json \
+          contarg/test/data/ds002330/*.tsv \
+          contarg/test/data/pybids_0.15.2_db/ \
+          contarg/test/data/derivatives/fmriprep/*.json \
           contarg/test/data/derivatives/fmriprep/sub-*/anat/sub-*_from-MNI152NLin6Asym_to-T1w_mode-image_xfm.h5 \
           contarg/test/data/derivatives/fmriprep/sub-*/anat/*preproc_T1w.* \
           contarg/test/data/derivatives/fmriprep/sub-*/func/*preproc_bold.* \
           contarg/test/data/derivatives/fmriprep/sub-*/func/*brain_mask.* \
           contarg/test/data/derivatives/fmriprep/sub-*/func/*boldref.* \
           contarg/test/data/derivatives/fmriprep/sub-*/func/*confounds_timeseries.* \
-          contarg/test/data/derivatives/contarg/hierarchical/testing*_ref \
+          contarg/test/data/derivatives/contarg/hierarchical/testing*_ref/ \
           contarg/test/data/derivatives/contarg/hierarchical/testing1sub/sub-*/func/*mask.nii.gz
       - name: Cache Dataset
         if: steps.restore-dataset.outputs.cache-hit != 'true'
