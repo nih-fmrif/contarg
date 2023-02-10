@@ -1,6 +1,8 @@
+import collections.abc as collections
 import pandas as pd
 import numpy as np
 import nilearn as nl
+import six
 from nilearn import image, masking
 from niworkflows.interfaces.fixes import (
     FixHeaderApplyTransforms as ApplyTransforms,
@@ -195,3 +197,10 @@ def idxs_to_flat(idxs, mask_path):
     flat_clust = null_mask[mask_dat != 0]
     assert len(flat_clust) == (mask_dat != 0).sum()
     return flat_clust
+
+def iterable(arg):
+    # from https://stackoverflow.com/a/44328500
+    return (
+        isinstance(arg, collections.Iterable)
+        and not isinstance(arg, six.string_types)
+    )
