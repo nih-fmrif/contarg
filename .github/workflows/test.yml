@@ -150,6 +150,9 @@ jobs:
             ./contarg/test/data
             .git/modules/contarg/test/data
           key: ${{ runner.os }}-${{steps.get-smhash.outputs.smhash}}
+      - name: Setup tmate session
+        uses: mxschmitt/action-tmate@v3
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.debug_enabled }}
       - name: Move data
         run: |
           contarg_path=$(which contarg)
@@ -161,9 +164,6 @@ jobs:
           rm -rf ${contarg_path:0:-11}/lib/python*/site-packages/contarg/test/data/.git
           mv .git/modules/contarg/test/data ${contarg_path:0:-11}/lib/python*/site-packages/contarg/test/data/.git
           ls -lta ${contarg_path:0:-11}/lib/python*/site-packages/contarg/test/data/
-      - name: Setup tmate session
-        uses: mxschmitt/action-tmate@v3
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.debug_enabled }}
       - name: Run tests
         run: pytest --doctest-modules -v --pyargs contarg
 
