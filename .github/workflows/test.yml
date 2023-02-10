@@ -154,8 +154,13 @@ jobs:
         run: |
           contarg_path=$(which contarg)
           mv contarg/test/data ${contarg_path:0:-11}/lib/python*/site-packages/contarg/test/
+          ls -lta ${contarg_path:0:-11}/lib/python*/site-packages/contarg/test/data/
+          ls -lta ${contarg_path:0:-11}/lib/python*/site-packages/contarg/test/data/.git
+          ls -lta .
+          pwd
           rm -rf ${contarg_path:0:-11}/lib/python*/site-packages/contarg/test/data/.git
-          mv .git/modules/contarg/test/data/ ${contarg_path:0:-11}/lib/python*/site-packages/contarg/test/data/.git
+          mv .git/modules/contarg/test/data ${contarg_path:0:-11}/lib/python*/site-packages/contarg/test/data/.git
+          ls -lta ${contarg_path:0:-11}/lib/python*/site-packages/contarg/test/data/
       - name: Setup tmate session
         uses: mxschmitt/action-tmate@v3
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.debug_enabled }}
