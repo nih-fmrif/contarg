@@ -191,16 +191,6 @@ def groupmap(
     """
     contarg_dir = Path(contarg_dir)
     roi_dir = Path(resource_filename("contarg", "data/rois"))
-    if stimroi_name in ["DLPFCspheres", "BA46sphere"]:
-        stim_roi_2mm_path = (
-            roi_dir / f"{stimroi_name}_space-MNI152NLin6Asym_res-02.nii.gz"
-        )
-    elif stimroi_path is None:
-        raise ValueError(
-            f"Custom roi name passed for stimroi, {stimroi_name}, but no path to that roi was provided."
-        )
-    else:
-        stim_roi_2mm_path = stimroi_path
     glob_str = "*"
 
     out_name_parts = []
@@ -219,10 +209,9 @@ def groupmap(
     out_name = "_".join(out_name_parts)
 
     subjmaps = sorted(contarg_dir.rglob(glob_str))
-    stimroi = nl.image.load_img(stim_roi_2mm_path)
-    stimroi_dat = stimroi.get_fdata()
 
-    mapsum = np.zeros_like(stimroi_dat, dtype=float)
+    tmp = nl.image.load_img(subjmaps[0])
+    mapsum = np.zeros_like(tmp, dtype=float)
 
     for subjmap in subjmaps:
         subjimg = nl.image.load_img(subjmap)
