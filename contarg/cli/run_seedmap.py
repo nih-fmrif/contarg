@@ -156,7 +156,7 @@ def subjectmap(
     subj_mask = nl.image.load_img(mask_path)
     gm_img = nl.image.load_img(gm_path)
 
-    subj_gm_dat = nl.masking.apply_mask(ref_vox_img, gm_img)
+    subj_gm_dat = nl.masking.apply_mask(gm_img, subj_mask)
     ref_vox_dat = nl.masking.apply_mask(ref_vox_img, subj_mask)
     gm_ref_vox_dat = ref_vox_dat * subj_gm_dat
     gm_ref_vox_img = nl.masking.unmask(gm_ref_vox_dat, subj_mask)
