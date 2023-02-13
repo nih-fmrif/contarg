@@ -64,6 +64,10 @@ def test_single_subject():
         assert out_df.equals(ref_df)
 
 
+@pytest.mark.skipif(
+    "not config.getoption('--run-big')",
+    reason="Only run when --run-big is given",
+)
 def test_multi_subject():
     # get paths
     data_path = Path(resource_filename("contarg", "test/data"))
