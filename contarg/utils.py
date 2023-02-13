@@ -61,6 +61,24 @@ def transform_mask_to_t1w(
     _ = at.run()
 
 
+def transform_stat_to_t1w(
+    row, inmask_col=None, inmask=None, outmask_col="boldmask_path"
+):
+    if inmask_col is None and inmask is None:
+        raise ValueError("one of mask_col or mask must be defined")
+    elif inmask_col is not None:
+        inmask = row[inmask_col]
+
+    at = ApplyTransforms()
+    at.inputs.input_image = inmask
+    at.inputs.reference_image = row.boldref
+    at.inputs.transforms = [row.mnitoT1w]
+    at.inputs.output_image = row[outmask_col].as_posix()
+    at.inputs.float = True
+    _ = at.run()
+
+
+
 def clean_mask(
     sub_mask, brain_mask, max_drop_frac=None, clean_mask_path=None, error="raise"
 ):
@@ -226,7 +244,7 @@ def cluster(stat_img_path, out_path=None, stim_roi_path=None, percentile=10, sig
         All values more extreme than percentile will be kept for clustering 
     sign : str ["negative", "positive"]
         Sign of values to operate on
-    connectivit : str ["NN1", "faces", "NN2", "edges", "NN3", "vertices"]
+    connectivity : str ["NN1", "faces", "NN2", "edges", "NN3", "vertices"]
         Deffinition of connectivity to use for clustering accepts either description (faces, edges, verticies) or AFNI label (NN1, NN2, NN3).
 
     Returns
