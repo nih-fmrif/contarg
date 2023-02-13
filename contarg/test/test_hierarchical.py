@@ -84,7 +84,7 @@ def test_multi_subject():
             "--smoothing-fwhm=3",
             "--ndummy=5",
             "--tr=1.9",
-            "--njobs=2",
+            "--njobs=1",
         ],
     )
     assert result.exit_code == 0
