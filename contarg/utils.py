@@ -9,7 +9,10 @@ from niworkflows.interfaces.fixes import (
 )  # pip
 from sklearn.feature_extraction.image import grid_to_graph
 from scipy.sparse.csgraph import connected_components
-
+from scipy.ndimage import (
+    label,
+    generate_binary_structure,
+)
 
 # code for transforming things to subject space
 def make_path(
@@ -204,3 +207,77 @@ def iterable(arg):
     return isinstance(arg, collections.Iterable) and not isinstance(
         arg, six.string_types
     )
+
+
+def cluster(stat_img_path, out_path=None, stim_roi_path=None, percentile=10, sign='negative', connectivity='NN3'):
+    """
+    Cluster a statmap for values with the sign of your choice within a particular ROI after threholding based on a percentile of values with that sign.
+    Outputs a mask for the largest cluster.
+
+    Parameters
+    ----------
+    stat_img_path : string or path object
+        Path to statistical image on which to cluster.
+    out_path : string or path object
+        Path to write output to, if None, no output is written
+    stim_roi_path : string or path object
+        Path to roi within which to cluster, if None, use all non-zero voxels in stat_img
+    percentile : float
+        All values more extreme than percentile will be kept for clustering 
+    sign : str ["negative", "positive"]
+        Sign of values to operate on
+    connectivit : str ["NN1", "faces", "NN2", "edges", "NN3", "vertices"]
+        Deffinition of connectivity to use for clustering accepts either description (faces, edges, verticies) or AFNI label (NN1, NN2, NN3).
+
+    Returns
+    -------
+    biggest_clsut_img : niiimage
+        Mask for the biggest cluster
+
+    Code inspired by https://github.com/nilearn/nilearn/blob/b7e5efdd37a6b4cc276763fc5f2a2cde81f7af73/nilearn/image/image.py#L790
+    """
+    if ((connectivity == "NN1") | (connectivity == "faces")):
+        bin_struct = generate_binary_structure(3, 1)
+    elif ((connectivity == "NN2") | (connectivity == "edges")):
+        bin_struct = generate_binary_structure(3, 2)
+    elif ((connectivity == "NN3") | (connectivity == "vertices")):
+        bin_struct = generate_binary_structure(3, 3)
+    else:
+        raise ValueError(f"You specified connectivity={connectivity}, but the only supported terms are:"
+                         "NN1 or faces"
+                         "NN2 or edges"
+                         "NN3 or vertices"
+                         )
+    stat_img = nl.image.load_img(stat_img_path)
+    if stim_roi_path is None:
+        stimroi_dat = stat_img.get_fdata() != 0
+        stimroi_img = nl.image.new_img_like(stat_img)
+    else:
+        stimroi = nl.image.load_img(stim_roi_path)
+    masked_stat = nl.masking.apply_mask(stat_img, stimroi)
+    threshed = masked_stat.copy()
+
+    if sign == 'negative':
+        sign_masked_stat = masked_stat[masked_stat < 0]
+        threshold = np.percentile(sign_masked_stat, percentile)
+        threshed[(masked_stat > 0) | (masked_stat > threshold)] = 0
+        threshed[threshed != 0] = 1
+    elif sign == 'positive':
+        sign_masked_stat = masked_stat[masked_stat > 0]
+        threshold = np.percentile(sign_masked_stat, percentile)
+        threshed[(masked_stat < 0) | (masked_stat < threshold)] = 0
+        threshed[threshed != 0] = 1
+
+    threshed_img = nl.masking.unmask(threshed, stimroi)
+    threshed_dat = threshed_img.get_fdata().squeeze()
+
+    label_map = label(threshed_dat, bin_struct)[0]
+    clust_ids = sorted(list(np.unique(label_map)[1:]))
+    clust_counts = [(label_map == c_val).sum() for c_val in clust_ids]
+
+    biggest_clust_id = clust_ids[np.argsort(clust_counts)[-1]]
+    biggest_clust_dat = (label_map == biggest_clust_id)
+    biggest_clust_img = nl.image.new_img_like(stat_img, biggest_clust_dat, affine=stat_img.affine, copy_header=True)
+    if out_path is not None:
+        biggest_clust_img.to_filename(out_path)
+    return biggest_clust_img

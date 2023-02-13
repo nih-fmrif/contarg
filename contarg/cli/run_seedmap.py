@@ -1,4 +1,6 @@
 from pathlib import Path
+
+import numpy as np
 from pkg_resources import resource_filename
 import click
 from contarg.seedmap import get_ref_vox_con
@@ -136,7 +138,7 @@ def subjectmap(
         out_name += f"_ses-{session}"
     if run is not None:
         if run[:4] == "run-":
-            run = session[4:]
+            run = run[4:]
         out_name += f"_run-{run}"
     out_dir = out_dir / "func"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -162,5 +164,78 @@ def subjectmap(
     gm_ref_vox_img = nl.masking.unmask(gm_ref_vox_dat, subj_mask)
     gm_ref_vox_img.to_filename(masked_ref_vox_con_path)
 
+@seedmap.command()
+@click.option("--contarg-dir", type=click.Path(exists=True),
+              help="Path to contarg output directory containing subject maps to average."
+                   "Example: [datadirectory]/derivatives/contarg/seedmap/working")
+@click.option(
+    "--stimroi-name",
+    type=str,
+    default="DLPFCspheres",
+    help="Name of roi to which stimulation will be delivered, will be excluded from groupmap."
+    "Should be one of ['DLPFCspheres', 'BA46sphere'], "
+    "or provide the path to the roi in MNI152NLin6Asym space with the stimroi-path option.",
+)
+@click.option(
+    "--stimroi-path",
+    type=str,
+    default=None,
+    help="If providing a custom stim roi, give the path to that ROI here.",
+)
+@click.option(
+    "--session",
+    type=str,
+    default=None,
+    help="Session from dataset to group map for.",
+)
+@click.option(
+    "--run", type=str, default=None, help="Run from dataset to generate group map for."
+)
+def groupmap(
+    contarg_dir,
+    stimroi_name,
+    stimroi_path,
+    session,
+    run
+):
+    contarg_dir = Path(contarg_dir)
+    if stimroi_name in ["DLPFCspheres", "BA46sphere"]:
+        stim_roi_2mm_path = (
+            roi_dir / f"{stimroi_name}_space-MNI152NLin6Asym_res-02.nii.gz"
+        )
+    elif stimroi_path is None:
+        raise ValueError(
+            f"Custom roi name passed for stimroi, {stimroi_name}, but no path to that roi was provided."
+        )
+    else:
+        stim_roi_2mm_path = stimroi_path
+    glob_str = "*/**/"
+    out_name_parts = []
+    if session is not None:
+        if session[:4] == "ses-":
+            session = session[4:]
+        glob_str += f"ses-{session}"
+        out_name_parts.append(f"*ses-{session}")
+    if run is not None:
+        if run[:4] == "run-":
+            run = run[4:]
+        glob_str += f"*run-{run}"
+        out_name_parts.append(f"run-{run}")
+    glob_str += '_desc-MaskedRefCon_stat.nii.gz'
+    out_name_parts.append("desc-groupmask.nii.gz")
+    out_name = "_".join(out_name_parts)
 
-# TODO: command to combine masks into an average
+    subjmaps = sorted(contarg_dir.glob(glob_str))
+
+    stimroi = nl.image.load_img(stim_roi_2mm_path)
+    stimroi_dat = stimroi.get_fdata()
+
+    mapsum = np.zeros_like(stimroi_dat, dtype=float)
+    for subjmap in subjmaps:
+        subjimg = nl.image.load_img(subjmap)
+        mapsum += subjimg.get_fdata()
+        del subjimg
+    mapave = mapsum / len(subjmaps)
+
+    mapave_img = nl.image.new_img_like(stimroi, mapave, affine=stimroi_dat.affine, copy_header=True)
+    mapave_img.to_filename(contarg_dir / out_name)
