@@ -106,6 +106,7 @@ def subjectmap(
     Output will be masked by grey matter mask and stimroi.
     """
     bold_paths = bold_path
+    derivatives_dir = Path(derivatives_dir)
     roi_dir = Path(resource_filename("contarg", "data/rois"))
 
     if refroi_name in ["SGCsphere", "bilateralSGCspheres"]:
