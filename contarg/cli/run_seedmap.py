@@ -241,5 +241,5 @@ def groupmap(
         del subjimg
     mapave = mapsum / len(subjmaps)
 
-    mapave_img = nl.image.new_img_like(stimroi, mapave, affine=stimroi_dat.affine, copy_header=True)
+    mapave_img = nl.image.new_img_like(stimroi, mapave, affine=stimroi.affine, copy_header=True)
     mapave_img.to_filename(contarg_dir / out_name)
