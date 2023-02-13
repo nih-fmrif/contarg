@@ -18,14 +18,14 @@ def seedmap():
 
 @seedmap.command()
 @click.option(
-    "--bold_path",
+    "--bold-path",
     type=click.Path(exists=True),
     multiple=True,
     help="Path to preprocessed bold timeseries. May be passed multiple times "
     "if multiple runs should be concatenated.",
 )
 @click.option(
-    "--mask_path",
+    "--mask-path",
     type=click.Path(exists=True),
     help="Path to whole brain mask to apply",
 )
@@ -35,7 +35,7 @@ def seedmap():
     help="Path to derivatives directory in which outputs will be placed in a bids-ish style",
 )
 @click.option(
-    "--gm_path",
+    "--gm-path",
     type=click.Path(exists=True),
     help="Path to grey matter mask or probabilistic map to apply",
 )
