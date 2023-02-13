@@ -198,7 +198,11 @@ def groupmap(
     session,
     run
 ):
+    """
+    Average subject level connectivity maps to make group seedmap and drop the stim roi.
+    """
     contarg_dir = Path(contarg_dir)
+    roi_dir = Path(resource_filename("contarg", "data/rois"))
     if stimroi_name in ["DLPFCspheres", "BA46sphere"]:
         stim_roi_2mm_path = (
             roi_dir / f"{stimroi_name}_space-MNI152NLin6Asym_res-02.nii.gz"
