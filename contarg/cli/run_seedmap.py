@@ -213,13 +213,13 @@ def groupmap(
         )
     else:
         stim_roi_2mm_path = stimroi_path
-    glob_str = "*/**/"
+    glob_str = "*"
     out_name_parts = []
     if session is not None:
         if session[:4] == "ses-":
             session = session[4:]
         glob_str += f"ses-{session}"
-        out_name_parts.append(f"*ses-{session}")
+        out_name_parts.append(f"ses-{session}")
     if run is not None:
         if run[:4] == "run-":
             run = run[4:]
@@ -229,15 +229,14 @@ def groupmap(
     out_name_parts.append("desc-groupmask.nii.gz")
     out_name = "_".join(out_name_parts)
 
-    subjmaps = sorted(contarg_dir.glob(glob_str))
-
+    subjmaps = sorted(contarg_dir.rglob(glob_str))
     stimroi = nl.image.load_img(stim_roi_2mm_path)
     stimroi_dat = stimroi.get_fdata()
 
     mapsum = np.zeros_like(stimroi_dat, dtype=float)
     for subjmap in subjmaps:
         subjimg = nl.image.load_img(subjmap)
-        mapsum += subjimg.get_fdata()
+        mapsum += subjimg.get_fdata().squeeze()
         del subjimg
     mapave = mapsum / len(subjmaps)
 
