@@ -57,11 +57,7 @@ jobs:
       - name: Download Dataset
         if: steps.restore-dataset.outputs.cache-hit != 'true'
         run: |
-          datalad siblings -r
-          cd contarg/test/data
-          datalad siblings
-          datalad update -s github
-          cd ../../..
+          datalad update -r -s gin-src
           datalad get -r contarg/test/data/derivatives/contarg/hierarchical/testing2subs/sub-*/func/*mask.nii.gz \
           contarg/test/data/ds002330/*.json \
           contarg/test/data/ds002330/*.tsv \
