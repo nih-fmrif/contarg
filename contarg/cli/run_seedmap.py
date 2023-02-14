@@ -8,8 +8,8 @@ from contarg.seedmap import get_ref_vox_con
 import nilearn as nl
 from nilearn import image, masking, maskers
 from bids import BIDSLayout  # pip version = 0.15.2
-from contarg.utils import make_path, transform_mask_to_t1w, transform_stat_to_t1w
-from contarg.seedmap import get_seedmap_vox_con
+from contarg.utils import make_path, transform_mask_to_t1w, transform_stat_to_t1w, cluster
+from contarg.seedmap import get_seedmap_vox_con, get_com_in_mm
 
 
 @click.group()
@@ -224,17 +224,19 @@ def groupmap(
 
 
 @seedmap.command()
-@click.option("--bids-dir", type=click.Path(exists=True), help="Path to bids root.")
+@click.option("--bids-dir", type=click.Path(exists=True), help="Path to bids root.", required=True)
 @click.option(
     "--derivatives-dir",
     type=click.Path(exists=True),
     help="Path to derivatives directory with fMRIPrep output.",
+    required=True
 )
 @click.option(
     "--database-file",
     type=click.Path(),
     help="Path to pybids database file (expects version 0.15.2), "
     "if one does not exist here, it will be created.",
+    required=True
 )
 @click.option(
     "--run-name",
@@ -248,6 +250,7 @@ def groupmap(
     "--seedmap-path",
     type=click.Path(exists=True),
     help="Path to seedmap image in MNI152NLin6Asym space",
+    required=True
 )
 @click.option(
     "--stimroi-name",
@@ -275,16 +278,19 @@ def groupmap(
 @click.option(
     "--smoothing-fwhm",
     type=float,
+    default=4.0,
     help="FWHM in mm of Gaussian blur to apply to functional",
 )
 @click.option(
     "--ndummy",
     "n_dummy",
     type=int,
+    default=0,
     help="Number of dummy scans at the beginning of the functional time series",
 )
 @click.option(
-    "--tr", "t_r", type=float, help="Repetition time of the functional time series"
+    "--tr", "t_r", type=float, help="Repetition time of the functional time series",
+    required=True
 )
 @click.option(
     "--target-method",
@@ -296,12 +302,13 @@ def groupmap(
 @click.option(
     "--connectivity",
     type=click.Choice(["NN1", "NN2", "NN3"]),
-    default="average",
+    default="NN3",
     show_default=True,
     help="Linkage type for clustering. Defined as in AFNI: NN1 is faces, NN2 is edges, NN3 is verticies.",
 )
 @click.option(
-    "--percentile", type=float, help="All values more extreme than percentile will be kept for clustering"
+    "--percentile", type=float, help="All values more extreme than percentile will be kept for clustering",
+    required=True
 )
 @click.option(
     "--subject",
@@ -355,6 +362,7 @@ def run(
     bids_dir = Path(bids_dir)
     derivatives_dir = Path(derivatives_dir)
     database_path = Path(database_file)
+    seedmap_path = Path(seedmap_path)
     roi_dir = Path(resource_filename("contarg", "data/rois"))
     layout = BIDSLayout(
         bids_dir,
@@ -387,7 +395,7 @@ def run(
         "task": "rest",
         "desc": "preproc",
         "suffix": "bold",
-        "space": "T1w",
+        "space": space,
         "extension": ".nii.gz",
     }
     if subject is not None:
@@ -413,7 +421,7 @@ def run(
             task=ee["task"],
             run=ee["run"],
             datatype="func",
-            space="T1w",
+            space=space,
             extension=".nii.gz",
             suffix="boldref",
         )
@@ -528,7 +536,7 @@ def run(
     if target_method == 'cluster':
         desc = f"{connectivity}.{target_method}.p{percentile}"
     else:
-        desc = f"{connectivity}.{target_method}"
+        desc = f"{target_method}"
 
     clust_updates = {
         "desc": desc,
@@ -537,6 +545,8 @@ def run(
         "atlas": "Coords",
         "extension": ".nii.gz",
     }
+    boldmask_pattern = "sub-{subject}/[ses-{session}/]func/sub-{subject}_[ses-{session}_]task-{task}_run-{run}_[echo-{echo}_]atlas-{atlas}_space-{space}_desc-{desc}_{suffix}.{extension}"
+
     rest_paths[f"{desc}_targout_cluster"] = rest_paths.entities.apply(
         lambda x: make_path(
             x,
@@ -576,6 +586,29 @@ def run(
         f"{desc}_targout_coordinates"
     ].apply(lambda x: x.exists())
 
+    clust_updates = {
+        "desc": desc,
+        "suffix": "seedmap_correlation",
+        "space": space,
+        "atlas": "Coords",
+        "extension": ".nii.gz",
+    }
+    rest_paths[f"{desc}_seedmap_correlation"] = rest_paths.entities.apply(
+        lambda x: make_path(
+            x,
+            clust_updates,
+            boldmask_pattern,
+            targeting_dir,
+            layout.build_path,
+            check_exist=False,
+            check_parent=False,
+            make_parent=True,
+        )
+    )
+    rest_paths[f"{desc}_seedmap_correlation_exists"] = rest_paths[
+        f"{desc}_seedmap_correlation"
+    ].apply(lambda x: x.exists())
+
     # transform all the masks that don't exist
     rest_paths.loc[~rest_paths.stim_mask_exists].apply(
         lambda x: transform_mask_to_t1w(
@@ -596,4 +629,27 @@ def run(
     assert rest_paths.seedmap_exists.all()
 
     # now that all of the paths are set
-    # ref_vox_img = get_seedmap_vox_con()
+    # run targeting for each row
+    for ix, row in rest_paths.iterrows():
+        ref_vox_img = get_seedmap_vox_con(row.bold_path, row.brain_mask, row.seedmap, row.stim_mask,
+                                          n_dummy=n_dummy, tr=t_r,
+                                          out_path=row[f"{desc}_seedmap_correlation"], smoothing_fwhm=smoothing_fwhm)
+        if target_method == "cluster":
+            clust_img = cluster(stat_img_path=ref_vox_img,
+                                out_path=row[f"{desc}_targout_cluster"],
+                                stim_roi_path=row.stim_mask,
+                                percentile=10,
+                                sign="negative",
+                                connectivity="NN3")
+            target_coords = get_com_in_mm(clust_img)
+        elif target_method == "classic":
+            ref_vox_dat = ref_vox_img.get_fdata()
+            target_idx = np.where(ref_vox_dat == ref_vox_dat.min())
+            target_idx = np.array([list(rr) + [1] for rr in zip(*target_idx)])
+            target_coords = np.matmul(ref_vox_img.affine, target_idx.T).T[:, :3]
+        else:
+            raise NotImplementedError(f"Target method {target_method} is not implemented.")
+        target_coords_df = pd.DataFrame(data=[target_coords], columns=["x", "y", "z"])
+        target_coords_df.to_csv(
+            row[f"{desc}_targout_coordinates"], index=None, sep="\t"
+        )

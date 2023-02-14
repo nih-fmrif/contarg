@@ -269,7 +269,7 @@ def cluster(stat_img_path, out_path=None, stim_roi_path=None, percentile=10, sig
     stat_img = nl.image.load_img(stat_img_path)
     if stim_roi_path is None:
         stimroi_dat = stat_img.get_fdata() != 0
-        stimroi_img = nl.image.new_img_like(stat_img)
+        stimroi = nl.image.new_img_like(stat_img,  stimroi_dat, affine=stat_img.affine)
     else:
         stimroi = nl.image.load_img(stim_roi_path)
     masked_stat = nl.masking.apply_mask(stat_img, stimroi)

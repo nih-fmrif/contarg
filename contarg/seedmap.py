@@ -65,6 +65,7 @@ def get_seedmap_vox_con(
   mask_path,
   seedmap_path,
   stimroi_path,
+  n_dummy,
   tr,
   out_path=None,
   smoothing_fwhm=4.0
@@ -112,11 +113,12 @@ def get_seedmap_vox_con(
     clean_tses = []
     for bold_path in bold_paths:
         gs = gs_masker.fit_transform(bold_path).mean(1).reshape(-1, 1)
-        cleaned = subj_masker.fit_transform(bold_path, confounds=gs)
+        cleaned = subj_masker.fit_transform(bold_path, confounds=gs)[n_dummy:]
         clean_tses.append(cleaned)
     cat_clean_tses = np.vstack(clean_tses)
     seedmap_ts = np.average(cat_clean_tses, axis=1, weights=masked_seedmap)
-    cat_clean_tses[masked_stim_mask != 0] = 0
+    seedmap_ts = (seedmap_ts - seedmap_ts.mean(0)) / seedmap_ts.std(0)
+    cat_clean_tses[:, masked_stim_mask == 0] = 0
     vox_dat = np.dot(cat_clean_tses.T, seedmap_ts) / seedmap_ts.shape[0]
     ref_vox_img = nl.masking.unmask(vox_dat.T, subj_mask)
     if out_path is not None:
@@ -124,3 +126,8 @@ def get_seedmap_vox_con(
 
     return ref_vox_img
 
+
+def get_com_in_mm(clust_img):
+    clust_idxs = np.array([list(rr) + [1] for rr in zip(*np.where(clust_img.get_fdata() != 0))])
+    clust_locs = np.matmul(clust_img.affine, clust_idxs.T).T[:, :3]
+    return clust_locs.mean(0)

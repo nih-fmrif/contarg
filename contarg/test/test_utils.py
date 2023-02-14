@@ -7,7 +7,7 @@ from contarg.utils import cluster
 
 def test_cluster():
     data_path = Path(resource_filename("contarg", "test/data"))
-    stat_img_path = data_path / 'derivatives/contarg/seedmap/test_ref/sub-02/func/sub-02_ses_desc-RefCon_stat.nii.gz'
+    stat_img_path = data_path / 'derivatives/contarg/seedmap/test_ref/sub-02/func/sub-02_desc-RefCon_stat.nii.gz'
     percentile = 10
     sign = "negative"
     connectivity = "NN3"
