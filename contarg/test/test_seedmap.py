@@ -34,7 +34,7 @@ def test_get_ref_vox_con():
     )
     ref_img = nl.image.load_img(ref_path)
 
-    ref_vox_con = get_ref_vox_con(bold_paths, mask_path, refroi_path, 0.72, out_path)
+    ref_vox_con = get_ref_vox_con(bold_paths, mask_path, refroi_path, 1.9, out_path)
 
     assert np.allclose(ref_vox_con.get_fdata(), ref_img.get_fdata())
 
