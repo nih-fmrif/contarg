@@ -59,6 +59,8 @@ jobs:
           cd contarg/test/data
           git log
           datalad update --merge
+          git log
+          cd ../../..
           datalad get -r  contarg/test/data/derivatives/contarg/seedmap/ \
           contarg/test/data/derivatives/contarg/hierarchical/testing2subs/sub-*/func/*mask.nii.gz \
           contarg/test/data/ds002330/*.json \
