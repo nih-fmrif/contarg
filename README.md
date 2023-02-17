@@ -1,3 +1,5 @@
+[![.github/workflows/test.yml](https://github.com/nih-fmrif/contarg/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/nih-fmrif/contarg/actions/workflows/test.yml)
+
 # ConTarg
 
 A python package implementing/wrapping methods for functional connectivity personalized targeting of rTMS therapy.
