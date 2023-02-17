@@ -56,7 +56,8 @@ jobs:
       - name: Download Dataset
         if: steps.restore-dataset.outputs.cache-hit != 'true'
         run: |
-          datalad get -r contarg/test/data/derivatives/contarg/hierarchical/testing2subs/sub-*/func/*mask.nii.gz \
+          datalad get -r  contarg/test/data/derivatives/contarg/seedmap/ \
+          contarg/test/data/derivatives/contarg/hierarchical/testing2subs/sub-*/func/*mask.nii.gz \
           contarg/test/data/ds002330/*.json \
           contarg/test/data/ds002330/*.tsv \
           contarg/test/data/derivatives/fmriprep/*.json \
@@ -67,7 +68,8 @@ jobs:
           contarg/test/data/derivatives/fmriprep/sub-*/func/*boldref.* \
           contarg/test/data/derivatives/fmriprep/sub-*/func/*confounds_timeseries.* \
           contarg/test/data/derivatives/contarg/hierarchical/testing*_ref/ \
-          contarg/test/data/derivatives/contarg/hierarchical/testing1sub/sub-*/func/*mask.nii.gz
+          contarg/test/data/derivatives/contarg/hierarchical/testing1sub/sub-*/func/*mask.nii.gz \
+          contarg/test/data/derivatives/contarg/cluster/
       - name: Cache Dataset
         if: steps.restore-dataset.outputs.cache-hit != 'true'
         uses: actions/cache/save@v3
@@ -76,6 +78,9 @@ jobs:
             ./contarg/test/data
             .git/modules/contarg/test/data
           key: ${{ runner.os }}-${{steps.get-smhash.outputs.smhash}}
+      - name: Setup tmate session
+        uses: mxschmitt/action-tmate@v3
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.debug_enabled && (success() || failure())}}
 
 
   build:
