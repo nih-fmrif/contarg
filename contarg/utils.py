@@ -1,4 +1,6 @@
+import os
 import collections.abc as collections
+from pathlib import Path
 import pandas as pd
 import numpy as np
 import nilearn as nl
@@ -7,12 +9,14 @@ from nilearn import image, masking
 from niworkflows.interfaces.fixes import (
     FixHeaderApplyTransforms as ApplyTransforms,
 )  # pip
+from nipype.interfaces.freesurfer import MRIConvert
 from sklearn.feature_extraction.image import grid_to_graph
 from scipy.sparse.csgraph import connected_components
 from scipy.ndimage import (
     label,
     generate_binary_structure,
 )
+
 
 # code for transforming things to subject space
 def make_path(
@@ -76,7 +80,6 @@ def transform_stat_to_t1w(
     at.inputs.output_image = row[outmask_col].as_posix()
     at.inputs.float = True
     _ = at.run()
-
 
 
 def clean_mask(
@@ -227,7 +230,14 @@ def iterable(arg):
     )
 
 
-def cluster(stat_img_path, out_path=None, stim_roi_path=None, percentile=10, sign='negative', connectivity='NN3'):
+def cluster(
+    stat_img_path,
+    out_path=None,
+    stim_roi_path=None,
+    percentile=10,
+    sign="negative",
+    connectivity="NN3",
+):
     """
     Cluster a statmap for values with the sign of your choice within a particular ROI after threholding based on a percentile of values with that sign.
     Outputs a mask for the largest cluster.
@@ -241,7 +251,7 @@ def cluster(stat_img_path, out_path=None, stim_roi_path=None, percentile=10, sig
     stim_roi_path : string or path object
         Path to roi within which to cluster, if None, use all non-zero voxels in stat_img
     percentile : float
-        All values more extreme than percentile will be kept for clustering 
+        All values more extreme than percentile will be kept for clustering
     sign : str ["negative", "positive"]
         Sign of values to operate on
     connectivity : str ["NN1", "faces", "NN2", "edges", "NN3", "vertices"]
@@ -254,33 +264,34 @@ def cluster(stat_img_path, out_path=None, stim_roi_path=None, percentile=10, sig
 
     Code inspired by https://github.com/nilearn/nilearn/blob/b7e5efdd37a6b4cc276763fc5f2a2cde81f7af73/nilearn/image/image.py#L790
     """
-    if ((connectivity == "NN1") | (connectivity == "faces")):
+    if (connectivity == "NN1") | (connectivity == "faces"):
         bin_struct = generate_binary_structure(3, 1)
-    elif ((connectivity == "NN2") | (connectivity == "edges")):
+    elif (connectivity == "NN2") | (connectivity == "edges"):
         bin_struct = generate_binary_structure(3, 2)
-    elif ((connectivity == "NN3") | (connectivity == "vertices")):
+    elif (connectivity == "NN3") | (connectivity == "vertices"):
         bin_struct = generate_binary_structure(3, 3)
     else:
-        raise ValueError(f"You specified connectivity={connectivity}, but the only supported terms are:"
-                         "NN1 or faces"
-                         "NN2 or edges"
-                         "NN3 or vertices"
-                         )
+        raise ValueError(
+            f"You specified connectivity={connectivity}, but the only supported terms are:"
+            "NN1 or faces"
+            "NN2 or edges"
+            "NN3 or vertices"
+        )
     stat_img = nl.image.load_img(stat_img_path)
     if stim_roi_path is None:
         stimroi_dat = stat_img.get_fdata() != 0
-        stimroi = nl.image.new_img_like(stat_img,  stimroi_dat, affine=stat_img.affine)
+        stimroi = nl.image.new_img_like(stat_img, stimroi_dat, affine=stat_img.affine)
     else:
         stimroi = nl.image.load_img(stim_roi_path)
     masked_stat = nl.masking.apply_mask(stat_img, stimroi)
     threshed = masked_stat.copy()
 
-    if sign == 'negative':
+    if sign == "negative":
         sign_masked_stat = masked_stat[masked_stat < 0]
         threshold = np.percentile(sign_masked_stat, percentile)
         threshed[(masked_stat > 0) | (masked_stat > threshold)] = 0
         threshed[threshed != 0] = 1
-    elif sign == 'positive':
+    elif sign == "positive":
         sign_masked_stat = masked_stat[masked_stat > 0]
         threshold = np.percentile(sign_masked_stat, percentile)
         threshed[(masked_stat < 0) | (masked_stat < threshold)] = 0
@@ -294,8 +305,229 @@ def cluster(stat_img_path, out_path=None, stim_roi_path=None, percentile=10, sig
     clust_counts = [(label_map == c_val).sum() for c_val in clust_ids]
 
     biggest_clust_id = clust_ids[np.argsort(clust_counts)[-1]]
-    biggest_clust_dat = (label_map == biggest_clust_id)
-    biggest_clust_img = nl.image.new_img_like(stat_img, biggest_clust_dat, affine=stat_img.affine, copy_header=True)
+    biggest_clust_dat = label_map == biggest_clust_id
+    biggest_clust_img = nl.image.new_img_like(
+        stat_img, biggest_clust_dat, affine=stat_img.affine, copy_header=True
+    )
     if out_path is not None:
         biggest_clust_img.to_filename(out_path)
     return biggest_clust_img
+
+
+def make_fmriprep_t2(fmriprep_dir, subject, out_dir):
+    if subject[:4] == "sub-":
+        subject = subject
+    else:
+        subject = f"sub-{subject}"
+    fs_subjects_dir = fmriprep_dir / "sourcedata/freesurfer"
+    fst2 = fs_subjects_dir / f"{subject}/mri/T2.mgz"
+    fsnative_to_t1 = (
+        fmriprep_dir
+        / f"{subject}/anat/{subject}_from-fsnative_to-T1w_mode-image_xfm.txt"
+    )
+    fmriprep_t1 = fmriprep_dir / f"{subject}/anat/{subject}_desc-preproc_T1w.nii.gz"
+
+    out_dir.mkdir(exist_ok=True, parents=True)
+    out_t2fsn = out_dir / f"{subject}_space-fsnative_desc-preproc_T2w.nii.gz"
+    out_t2 = out_dir / f"{subject}_desc-preproc_T2w.nii.gz"
+
+    os.environ["SUBJECTS_DIR"] = fs_subjects_dir.as_posix()
+
+    mc = MRIConvert()
+    mc.inputs.in_file = fst2
+    mc.inputs.out_file = out_t2fsn.as_posix()
+    mc.inputs.out_type = "niigz"
+    _ = mc.run()
+
+    at = ApplyTransforms()
+    at.inputs.input_image = out_t2fsn
+    at.inputs.reference_image = fmriprep_t1
+    at.inputs.transforms = [fsnative_to_t1]
+    at.inputs.output_image = out_t2.as_posix()
+    at.inputs.float = True
+    _ = at.run()
+
+
+def parse_bidsname(filename):
+    res = {}
+    levels = Path(filename).parts
+    if len(levels) > 1:
+        res['type'] = Path(filename).parts[-2]
+        parts = Path(filename).parts[-1].split('_')
+    else:
+        parts = filename.split('_')
+    np = len(parts)
+    for ii, part in enumerate(parts):
+        if ii != (np - 1):
+            pp = part.split('-')
+            res[pp[0]] = '-'.join(pp[1:])
+        else:
+            pp = part.split('.')
+            res['suffix'] = pp[0]
+            res['extension'] = '.'.join(pp[1:])
+    return res
+
+
+def build_bidsname(parts, exclude=None, order=None):
+    filename = ''
+    containing = ''
+    if exclude is None:
+        exclude = []
+    elif isinstance(exclude, str):
+        exclude = [exclude]
+    if order is None:
+        order = ['type', 'sub', 'ses', 'task', 'acq', 'ce', 'rec', 'dir',  'run',
+                 'mod', 'echo', 'flip', 'inv', 'mt', 'part', 'recording', 'hemi', 'space',
+                 'res',  'label', 'from', 'to', 'mode', 'desc', 'suffix', 'extension']
+    for k in parts.keys():
+        if (not k in order) and (not k in exclude):
+            raise ValueError(f"Got key {k}, which is not in entity order {order}.")
+    tmp = {}
+    for oo in order:
+        if oo in parts:
+            tmp[oo] = parts[oo]
+    for k, v in tmp.items():
+        if k in exclude:
+            continue
+        if k == 'type':
+            containing = v
+        elif k == 'suffix':
+            filename += f'{v}.'
+        elif k == 'extension':
+            if v[0] == '.':
+                v = v[1:]
+            filename += v
+        elif v:
+            filename += f'{k}-{v}_'
+        else:
+            filename += f'{k}_'
+    if containing:
+        return (Path(containing) / filename).as_posix()
+    else:
+        return filename
+
+
+def get_rel_path(source_path, target_path):
+    """
+    Find the point at which a source path and target path share a common folder
+    and returns a relative path from the source path to the target path.
+
+    Parameters:
+    -----------
+    source_path : (str or pathlib.Path)
+        The path to the source folder.
+    target_path : (str or pathlib.Path)
+        The path to the target folder.
+
+    Returns:
+    pathlib.Path
+        The relative path from the source path to the target path.
+
+    Example:
+        >>> get_rel_path('a/b/c/d', 'a/e/f')
+        Path('../../e/f')
+    """
+    path_a = Path(target_path)
+    path_b = Path(source_path)
+
+    res = None
+    tmp_path = path_b
+    n_up = -1
+    while res is None:
+        try:
+            res = path_a.relative_to(tmp_path)
+        except ValueError:
+            tmp_path = tmp_path.parent
+            n_up += 1
+    return Path('/'.join(['..'] * n_up)) / res
+
+
+def make_rel_symlink(source_path, target_path):
+    """
+    Create a relative symlink from the source path to the target path.
+
+    Parameters:
+        source_path (str or pathlib.Path): The path to the source folder.
+        target_path (str or pathlib.Path): The path to the target folder.
+
+    Returns:
+        None.
+
+    Raises:
+        ValueError: If source_path already exists but does not point to the target_path.
+
+
+    """
+    if source_path.exists():
+        if source_path.resolve() == target_path.resolve():
+            return
+        else:
+            raise ValueError(f'{source_path} exists and does not point to target. Check your paths and maybe delete {source_path}.')
+    source_path = Path(source_path)
+    target_path = Path(target_path)
+    rel_path = get_rel_path(source_path, target_path)
+    assert (source_path.parent / rel_path).exists()
+    source_path.symlink_to(get_rel_path(source_path, target_path))
+
+
+def update_bidspath(orig_path, new_bids_root, updates, exists=False, exclude=None, order=None):
+    """
+    Creates a BIDS-ish file path based on the entities in orig_paths with the specified changes.
+
+    Parameters
+    ----------
+    orig_path : str or Path-like
+        The original BIDS-like file path.
+    new_bids_root : str or Path-like
+        The the root directory for the new path
+    updates : dict
+        A dictionary of key-value pairs representing the new labels to add to the BIDS file path.
+    exists : bool, optional
+        If True, check whether the new file path already exists and raise an error if it does not. Defaults to False.
+    exclude : list, optional
+        A list of BIDS keys to exclude when constructing the new file path. Defaults to None.
+    order : list, optional
+        A list specifying the order in which BIDS keys should be included in the new file path. Defaults to None.
+
+    Returns
+    -------
+    Path
+        A new Path object representing the updated BIDS-compliant file path.
+
+    Raises
+    ------
+    FileNotFoundError
+        If the new file path does not exist and the `exists` parameter is set to True.
+
+    Description
+    -----------
+    This function updates a BIDS-compliant file path with new subject, session, or other label(s) specified in the
+    `updates` dictionary. It constructs a new file path based on the new labels and the `new_bids_root` directory,
+    and returns a new `Path` object representing the updated file path. The `exclude` parameter can be used to
+    exclude certain BIDS keys from the new file path, and the `order` parameter can be used to specify the order
+    in which BIDS keys should be included in the new file path.
+
+    If the `exists` parameter is set to True, the function will check whether the new file path already exists and
+    raise a `FileNotFoundError` if it does not. The `exclude` and `order` parameters are both optional and default
+    to None if not specified. The `exclude` parameter can be used to exclude certain BIDS keys from the new file path,
+    and the `order` parameter can be used to specify the order in which BIDS keys should be included in the new file path.
+
+    """
+    orig_path = Path(orig_path)
+    if exclude is None:
+        exclude = []
+    new_bids_root = Path(new_bids_root)
+    ents = parse_bidsname(orig_path)
+    new_ents = ents.copy()
+    new_ents.update(updates)
+    new_name = build_bidsname(new_ents, exclude=exclude, order=order)
+
+    if ('ses' in ents) and (f'ses-{ents["ses"]}' in orig_path.parts) and (not 'ses' in exclude):
+        new_path = new_bids_root / f"sub-{new_ents['sub']}/ses-{new_ents['ses']}/{new_name}"
+    else:
+        new_path = new_bids_root / f"sub-{new_ents['sub']}/{new_name}"
+    if exists:
+        if not new_path.exists():
+            raise FileNotFoundError(new_path)
+
+    return new_path
