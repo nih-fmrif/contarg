@@ -663,7 +663,10 @@ def get_stimroi_path(stimroi_name, stimroi_path=None, cifti=False):
         raise FileNotFoundError(stim_roi_2mm_path.as_posix())
     return stim_roi_2mm_path
 
+
 REFROIS = ["SGCsphere", "bilateralSGCspheres", "DepressionCircuit"]
+
+
 def get_refroi_path(refroi_name, refroi_path=None, cifti=False):
     """
     Return the path to the ROI file for the region stimulation is to be delivered to.
