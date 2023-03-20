@@ -16,6 +16,7 @@ from scipy.ndimage import (
     label,
     generate_binary_structure,
 )
+from pkg_resources import resource_filename
 
 
 # code for transforming things to subject space
@@ -352,33 +353,62 @@ def parse_bidsname(filename):
     res = {}
     levels = Path(filename).parts
     if len(levels) > 1:
-        res['type'] = Path(filename).parts[-2]
-        parts = Path(filename).parts[-1].split('_')
+        res["type"] = Path(filename).parts[-2]
+        parts = Path(filename).parts[-1].split("_")
     else:
-        parts = filename.split('_')
+        parts = filename.split("_")
     np = len(parts)
     for ii, part in enumerate(parts):
         if ii != (np - 1):
-            pp = part.split('-')
-            res[pp[0]] = '-'.join(pp[1:])
+            pp = part.split("-")
+            res[pp[0]] = "-".join(pp[1:])
         else:
-            pp = part.split('.')
-            res['suffix'] = pp[0]
-            res['extension'] = '.'.join(pp[1:])
+            pp = part.split(".")
+            res["suffix"] = pp[0]
+            res["extension"] = ".".join(pp[1:])
     return res
 
 
+BIDS_ORDER = [
+    "type",
+    "sub",
+    "ses",
+    "task",
+    "acq",
+    "ce",
+    "rec",
+    "dir",
+    "run",
+    "mod",
+    "echo",
+    "flip",
+    "inv",
+    "mt",
+    "part",
+    "recording",
+    "hemi",
+    "space",
+    "den",
+    "res",
+    "label",
+    "from",
+    "to",
+    "mode",
+    "desc",
+    "suffix",
+    "extension",
+]
+
+
 def build_bidsname(parts, exclude=None, order=None):
-    filename = ''
-    containing = ''
+    filename = ""
+    containing = ""
     if exclude is None:
         exclude = []
     elif isinstance(exclude, str):
         exclude = [exclude]
     if order is None:
-        order = ['type', 'sub', 'ses', 'task', 'acq', 'ce', 'rec', 'dir',  'run',
-                 'mod', 'echo', 'flip', 'inv', 'mt', 'part', 'recording', 'hemi', 'space',
-                 'res',  'label', 'from', 'to', 'mode', 'desc', 'suffix', 'extension']
+        order = BIDS_ORDER
     for k in parts.keys():
         if (not k in order) and (not k in exclude):
             raise ValueError(f"Got key {k}, which is not in entity order {order}.")
@@ -389,22 +419,66 @@ def build_bidsname(parts, exclude=None, order=None):
     for k, v in tmp.items():
         if k in exclude:
             continue
-        if k == 'type':
+        if k == "type":
             containing = v
-        elif k == 'suffix':
-            filename += f'{v}.'
-        elif k == 'extension':
-            if v[0] == '.':
+        elif k == "suffix":
+            filename += f"{v}."
+        elif k == "extension":
+            if v[0] == ".":
                 v = v[1:]
             filename += v
         elif v:
-            filename += f'{k}-{v}_'
+            filename += f"{k}-{v}_"
         else:
-            filename += f'{k}_'
+            filename += f"{k}_"
     if containing:
         return (Path(containing) / filename).as_posix()
     else:
         return filename
+
+
+def find_bids_files(search_root, exclude=None, order=None, debug=False, **ents):
+    if exclude is None:
+        exclude = []
+    else:
+        if isinstance(exclude, str):
+            exclude = [exclude]
+        for ee in exclude:
+            ents.pop(ee, None)
+    search_dir = Path(search_root)
+    if order is None:
+        order = BIDS_ORDER
+    for k in ents.keys():
+        if not k in order:
+            raise ValueError(f"Got key {k}, which is not in entity order {order}.")
+    if "sub" in ents:
+        search_dir /= f'sub-{ents["sub"]}'
+    if "ses" in ents:
+        search_dir /= f'ses-{ents["ses"]}'
+    if "type" in ents:
+        search_dir /= f'{ents["type"]}'
+    tmp = {}
+    for oo in order:
+        if oo in ents and oo != "type":
+            if ents[oo] is not None:
+                tmp[oo] = ents[oo]
+    glob_string = ""
+    ending = ""
+    for k, v in tmp.items():
+        if k == "suffix":
+            ending += f"{v}."
+        elif k == "extension":
+            if v[0] == ".":
+                v = v[1:]
+            ending += f"{v}"
+        elif v:
+            glob_string += f"*{k}-{v}_"
+        else:
+            glob_string += f"*{k}_"
+    glob_string += f"*{ending}"
+    if debug:
+        print(search_dir, glob_string, flush=True)
+    return sorted(search_dir.glob(glob_string))
 
 
 def get_rel_path(source_path, target_path):
@@ -439,7 +513,7 @@ def get_rel_path(source_path, target_path):
         except ValueError:
             tmp_path = tmp_path.parent
             n_up += 1
-    return Path('/'.join(['..'] * n_up)) / res
+    return Path("/".join([".."] * n_up)) / res
 
 
 def make_rel_symlink(source_path, target_path):
@@ -455,14 +529,14 @@ def make_rel_symlink(source_path, target_path):
 
     Raises:
         ValueError: If source_path already exists but does not point to the target_path.
-
-
     """
     if source_path.exists():
         if source_path.resolve() == target_path.resolve():
             return
         else:
-            raise ValueError(f'{source_path} exists and does not point to target. Check your paths and maybe delete {source_path}.')
+            raise ValueError(
+                f"{source_path} exists and does not point to target. Check your paths and maybe delete {source_path}."
+            )
     source_path = Path(source_path)
     target_path = Path(target_path)
     rel_path = get_rel_path(source_path, target_path)
@@ -470,7 +544,9 @@ def make_rel_symlink(source_path, target_path):
     source_path.symlink_to(get_rel_path(source_path, target_path))
 
 
-def update_bidspath(orig_path, new_bids_root, updates, exists=False, exclude=None, order=None):
+def update_bidspath(
+    orig_path, new_bids_root, updates, exists=False, exclude=None, order=None
+):
     """
     Creates a BIDS-ish file path based on the entities in orig_paths with the specified changes.
 
@@ -522,8 +598,14 @@ def update_bidspath(orig_path, new_bids_root, updates, exists=False, exclude=Non
     new_ents.update(updates)
     new_name = build_bidsname(new_ents, exclude=exclude, order=order)
 
-    if ('ses' in ents) and (f'ses-{ents["ses"]}' in orig_path.parts) and (not 'ses' in exclude):
-        new_path = new_bids_root / f"sub-{new_ents['sub']}/ses-{new_ents['ses']}/{new_name}"
+    if (
+        ("ses" in ents)
+        and (f'ses-{ents["ses"]}' in orig_path.parts)
+        and (not "ses" in exclude)
+    ):
+        new_path = (
+            new_bids_root / f"sub-{new_ents['sub']}/ses-{new_ents['ses']}/{new_name}"
+        )
     else:
         new_path = new_bids_root / f"sub-{new_ents['sub']}/{new_name}"
     if exists:
@@ -531,3 +613,100 @@ def update_bidspath(orig_path, new_bids_root, updates, exists=False, exclude=Non
             raise FileNotFoundError(new_path)
 
     return new_path
+
+
+def get_stimroi_path(stimroi_name, stimroi_path=None, cifti=False):
+    """
+    Return the path to the ROI file for the region stimulation is to be delivered to.
+
+    Parameters
+    ----------
+    stimroi_name : str
+        Name of the stimulated region ROI file, options are "dilatedDLPFCspheres", "DLPFCspheres", "BA46sphere".
+    stimroi_path : str or None
+        The path of the custom stimulated region ROI file. Only needed if name is not recognized
+    cifti : bool, optional
+        If True, return a cifti file instead of a nifti file. Default is False.
+
+    Returns
+    -------
+    Path
+        The path to the stimulated region ROI file.
+
+    Raises
+    ------
+    ValueError
+        If a custom stimulated region ROI name is provided but no path to that ROI file is provided.
+    FileNotFoundError
+        If the stimulated region ROI file does not exist.
+    """
+
+    roi_dir = Path(resource_filename("contarg", "data/rois"))
+
+    if stimroi_name in ["dilatedDLPFCspheres", "DLPFCspheres", "BA46sphere"]:
+        if cifti:
+            stim_roi_2mm_path = (
+                roi_dir / f"{stimroi_name}_space-fsLR_den-91k.dtseries.nii"
+            )
+        else:
+            stim_roi_2mm_path = (
+                roi_dir / f"{stimroi_name}_space-MNI152NLin6Asym_res-02.nii.gz"
+            )
+    elif stimroi_path is None:
+        raise ValueError(
+            f"Custom roi name passed for stimroi, {stimroi_name}, but no path to that roi was provided."
+        )
+    else:
+        stim_roi_2mm_path = stimroi_path
+
+    if not stim_roi_2mm_path.exists():
+        raise FileNotFoundError(stim_roi_2mm_path.as_posix())
+    return stim_roi_2mm_path
+
+REFROIS = ["SGCsphere", "bilateralSGCspheres", "DepressionCircuit"]
+def get_refroi_path(refroi_name, refroi_path=None, cifti=False):
+    """
+    Return the path to the ROI file for the region stimulation is to be delivered to.
+
+    Parameters
+    ----------
+    refroi_name : str
+        Name of the reference region ROI file, options are "SGCsphere", "bilateralSGCspheres", "DepressionCircuit".
+    refroi_path : str or None
+        The path of the custom reference ROI file. Only needed if name is not recognized.
+    cifti : bool, optional
+        If True, return a cifti file instead of a nifti file. Default is False.
+
+    Returns
+    -------
+    Path
+        The path to the reference region ROI file.
+
+    Raises
+    ------
+    ValueError
+        If a custom reference region ROI name is provided but no path to that ROI file is provided.
+    FileNotFoundError
+        If the reference region ROI file does not exist.
+    """
+    roi_dir = Path(resource_filename("contarg", "data/rois"))
+
+    if refroi_name in REFROIS:
+        if cifti:
+            ref_roi_2mm_path = (
+                roi_dir / f"{refroi_name}_space-fsLR_den-91k.dtseries.nii"
+            )
+        else:
+            ref_roi_2mm_path = (
+                roi_dir / f"{refroi_name}_space-MNI152NLin6Asym_res-02.nii.gz"
+            )
+    elif refroi_path is None:
+        raise ValueError(
+            f"Custom roi name passed refroi, {refroi_name}, but no path to that roi was provided."
+        )
+    else:
+        ref_roi_2mm_path = refroi_path
+
+    if not ref_roi_2mm_path.exists():
+        raise FileNotFoundError(ref_roi_2mm_path.as_posix())
+    return ref_roi_2mm_path
