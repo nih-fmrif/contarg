@@ -9,6 +9,7 @@ from click.testing import CliRunner
 from contarg.cli.cli import contarg
 from contarg.cli.run_seedmap import run
 
+
 def test_get_ref_vox_con():
     data_path = Path(resource_filename("contarg", "test/data"))
     bold_paths = [
@@ -56,11 +57,19 @@ def test_get_seedmap_vox_con():
         data_path
         / "derivatives/contarg/seedmap/hcp_working/SGCsphere_ses-REST1_space-MNI152NLin6Asym_res-2_desc-HCPgroupmask_mask.nii.gz"
     )
-    stimroi_path = roi_dir/"DLPFCspheresmasked_space-MNI152NLin6Asym_res-02.nii.gz"
+    stimroi_path = roi_dir / "DLPFCspheresmasked_space-MNI152NLin6Asym_res-02.nii.gz"
     out_dir = data_path / "derivatives/contarg/seedmap/test/sub-02/func"
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / "sub-02_desc-SeedmapCon_stat.nii.gz"
-    sm_con = get_seedmap_vox_con(bold_paths, mask_path, seedmap_path, stimroi_path, n_dummy=5, tr=1.9, out_path=out_path)
+    sm_con = get_seedmap_vox_con(
+        bold_paths,
+        mask_path,
+        seedmap_path,
+        stimroi_path,
+        n_dummy=5,
+        tr=1.9,
+        out_path=out_path,
+    )
     ref_path = (
         data_path
         / "derivatives/contarg/seedmap/test_ref/sub-02/func/sub-02_desc-SeedmapCon_stat.nii.gz"
@@ -68,6 +77,7 @@ def test_get_seedmap_vox_con():
     ref_img = nl.image.load_img(ref_path)
 
     assert np.allclose(sm_con.get_fdata(), ref_img.get_fdata())
+
 
 # uncomment if you've commented out all the click decorators on run_seedmap.run
 # def test_run():
@@ -103,6 +113,7 @@ def test_get_seedmap_vox_con():
 #         njobs=1
 #         )
 
+
 def test_single_subject_MNI():
     # get paths
     data_path = Path(resource_filename("contarg", "test/data"))
@@ -133,7 +144,7 @@ def test_single_subject_MNI():
             "--target-method=cluster",
             "--subject=02",
         ],
-        catch_exceptions=False
+        catch_exceptions=False,
     )
     assert result.exit_code == 0
     output_dir = (
@@ -162,6 +173,7 @@ def test_single_subject_MNI():
         out_df = pd.read_csv(out_tsv, sep="\t")
         ref_df = pd.read_csv(tsv, sep="\t")
         assert out_df.equals(ref_df)
+
 
 def test_single_subject():
     # get paths
@@ -193,19 +205,14 @@ def test_single_subject():
             "--target-method=cluster",
             "--subject=02",
         ],
-        catch_exceptions=False
+        catch_exceptions=False,
     )
     assert result.exit_code == 0
     output_dir = (
         derivatives_dir / "contarg" / "seedmap" / "testing1sub" / "sub-02" / "func"
     )
     reference_dir = (
-        derivatives_dir
-        / "contarg"
-        / "seedmap"
-        / "testing1sub_ref"
-        / "sub-02"
-        / "func"
+        derivatives_dir / "contarg" / "seedmap" / "testing1sub_ref" / "sub-02" / "func"
     )
     assert reference_dir.exists()
     assert output_dir.exists()
@@ -222,6 +229,7 @@ def test_single_subject():
         out_df = pd.read_csv(out_tsv, sep="\t")
         ref_df = pd.read_csv(tsv, sep="\t")
         assert out_df.equals(ref_df)
+
 
 if __name__ == "__main__":
     test_get_ref_vox_con()
