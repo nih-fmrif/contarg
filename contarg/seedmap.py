@@ -60,15 +60,16 @@ def get_ref_vox_con(
 
     return ref_vox_img
 
+
 def get_seedmap_vox_con(
-  bold_path,
-  mask_path,
-  seedmap_path,
-  stimroi_path,
-  n_dummy,
-  tr,
-  out_path=None,
-  smoothing_fwhm=4.0
+    bold_path,
+    mask_path,
+    seedmap_path,
+    stimroi_path,
+    n_dummy,
+    tr,
+    out_path=None,
+    smoothing_fwhm=4.0,
 ):
     """
     Get the representative time series of a passed bold image based on a seedmap.
@@ -128,6 +129,8 @@ def get_seedmap_vox_con(
 
 
 def get_com_in_mm(clust_img):
-    clust_idxs = np.array([list(rr) + [1] for rr in zip(*np.where(clust_img.get_fdata() != 0))])
+    clust_idxs = np.array(
+        [list(rr) + [1] for rr in zip(*np.where(clust_img.get_fdata() != 0))]
+    )
     clust_locs = np.matmul(clust_img.affine, clust_idxs.T).T[:, :3]
     return clust_locs.mean(0)

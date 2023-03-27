@@ -1,3 +1,6 @@
 [submodule "contarg/test/data"]
 	path = contarg/test/data
 	url = https://github.com/nih-fmrif/contarg_test_data.git
+[submodule "contarg/resources/Targeted-Functional-Network-Stimulation"]
+	path = contarg/resources/Targeted-Functional-Network-Stimulation
+	url = https://github.com/Shotgunosine/Targeted-Functional-Network-Stimulation
