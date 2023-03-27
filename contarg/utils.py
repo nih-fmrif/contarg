@@ -615,6 +615,9 @@ def update_bidspath(
     return new_path
 
 
+STIMROIS = ["dilatedDLPFCspheres", "DLPFCspheres", "BA46sphere", "coleBA46"]
+
+
 def get_stimroi_path(stimroi_name, stimroi_path=None, cifti=False):
     """
     Return the path to the ROI file for the region stimulation is to be delivered to.
@@ -643,7 +646,7 @@ def get_stimroi_path(stimroi_name, stimroi_path=None, cifti=False):
 
     roi_dir = Path(resource_filename("contarg", "data/rois"))
 
-    if stimroi_name in ["dilatedDLPFCspheres", "DLPFCspheres", "BA46sphere"]:
+    if stimroi_name in STIMROIS:
         if cifti:
             stim_roi_2mm_path = (
                 roi_dir / f"{stimroi_name}_space-fsLR_den-91k.dtseries.nii"
@@ -664,7 +667,7 @@ def get_stimroi_path(stimroi_name, stimroi_path=None, cifti=False):
     return stim_roi_2mm_path
 
 
-REFROIS = ["SGCsphere", "bilateralSGCspheres", "DepressionCircuit"]
+REFROIS = ["SGCsphere", "bilateralSGCspheres", "bilateralfullSGCsphere", "DepressionCircuit"]
 
 
 def get_refroi_path(refroi_name, refroi_path=None, cifti=False):
@@ -674,7 +677,7 @@ def get_refroi_path(refroi_name, refroi_path=None, cifti=False):
     Parameters
     ----------
     refroi_name : str
-        Name of the reference region ROI file, options are "SGCsphere", "bilateralSGCspheres", "DepressionCircuit".
+        Name of the reference region ROI file, options are "SGCsphere", "bilateralSGCspheres","bilateralfullSGCsphere", "DepressionCircuit".
     refroi_path : str or None
         The path of the custom reference ROI file. Only needed if name is not recognized.
     cifti : bool, optional
