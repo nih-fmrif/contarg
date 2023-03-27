@@ -6,7 +6,15 @@ from nilearn import image, masking
 from joblib import Parallel, delayed
 import click
 from pkg_resources import resource_filename
-from contarg.utils import make_path, transform_mask_to_t1w, clean_mask
+from contarg.utils import (
+    make_path,
+    transform_mask_to_t1w,
+    clean_mask,
+    get_stimroi_path,
+    get_refroi_path,
+    REFROIS,
+    STIMROIS,
+)
 from contarg.hierarchical import (
     find_target,
     custom_metric,
@@ -209,30 +217,8 @@ def run(
         targeting_dir = derivatives_dir / "contarg" / "hierarchical"
     targeting_dir.mkdir(parents=True, exist_ok=True)
 
-    if stimroi_name in ["DLPFCspheres", "BA46sphere"]:
-        stim_roi_2mm_path = (
-            roi_dir / f"{stimroi_name}_space-MNI152NLin6Asym_res-02.nii.gz"
-        )
-    elif stimroi_path is None:
-        raise ValueError(
-            f"Custom roi name passed for stimroi, {stimroi_name}, but no path to that roi was provided."
-        )
-    else:
-        stim_roi_2mm_path = stimroi_path
-
-    if refroi_name in ["SGCsphere", "bilateralSGCspheres"]:
-        ref_roi_2mm_path = (
-            roi_dir / f"{refroi_name}_space-MNI152NLin6Asym_res-02.nii.gz"
-        )
-    elif refroi_path is None:
-        raise ValueError(
-            f"Custom roi name passed refroi, {refroi_name}, but no path to that roi was provided."
-        )
-    else:
-        ref_roi_2mm_path = refroi_path
-
-    assert stim_roi_2mm_path.exists()
-    assert ref_roi_2mm_path.exists()
+    stim_roi_2mm_path = get_stimroi_path(stimroi_name, stimroi_path)
+    ref_roi_2mm_path = get_refroi_path(refroi_name, refroi_path)
 
     # Getting all the needed input paths
     # build paths df off of bolds info
