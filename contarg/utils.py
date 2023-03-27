@@ -667,7 +667,12 @@ def get_stimroi_path(stimroi_name, stimroi_path=None, cifti=False):
     return stim_roi_2mm_path
 
 
-REFROIS = ["SGCsphere", "bilateralSGCspheres", "bilateralfullSGCsphere", "DepressionCircuit"]
+REFROIS = [
+    "SGCsphere",
+    "bilateralSGCspheres",
+    "bilateralfullSGCsphere",
+    "DepressionCircuit",
+]
 
 
 def get_refroi_path(refroi_name, refroi_path=None, cifti=False):
