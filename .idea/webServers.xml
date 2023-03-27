@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="WebServers">
+    <option name="servers">
+      <webServer id="7f4bb56e-de3a-4ae8-8321-f71ffdf19eca" name="biowulf">
+        <fileTransfer accessType="SFTP" host="helix" port="22" sshConfigId="5a652212-5fb8-4adb-a9ed-b36632cae37a" sshConfig="nielsond@helix:22 key" keyPair="true">
+          <advancedOptions>
+            <advancedOptions dataProtectionLevel="Private" passiveMode="true" shareSSLContext="true" isUseRsync="true" />
+          </advancedOptions>
+        </fileTransfer>
+      </webServer>
+    </option>
+  </component>
+</project>
