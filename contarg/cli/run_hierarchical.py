@@ -5,15 +5,15 @@ import nilearn as nl
 from nilearn import image, masking
 from joblib import Parallel, delayed
 import click
-from pkg_resources import resource_filename
 from contarg.utils import (
     make_path,
     transform_mask_to_t1w,
     clean_mask,
     get_stimroi_path,
     get_refroi_path,
-    REFROIS,
-    STIMROIS,
+    update_bidspath,
+    parse_bidsname,
+    select_confounds
 )
 from contarg.hierarchical import (
     find_target,
@@ -22,6 +22,7 @@ from contarg.hierarchical import (
     get_com_in_mm,
     get_clust_image,
     get_vox_ref_corr,
+    prep_tedana_for_hierarchical
 )
 
 
@@ -47,6 +48,18 @@ def hierarchical():
     type=click.Path(),
     help="Path to pybids database file (expects version 0.15.2), "
     "if one does not exist here, it will be created.",
+)
+@click.option(
+    "--fmriprep-dir",
+    type=click.Path(exists=True),
+    help="Path to fmriprep outputs, if not given, they are assumed to be in derivatives_dir / fmriprep",
+    default=None
+)
+@click.option(
+    "--tedana-dir",
+    type=click.Path(),
+    default=None,
+    help="Path to TEDANA outputs",
 )
 @click.option(
     "--run-name",
@@ -128,6 +141,11 @@ def hierarchical():
     help="Minimum spearman correlation required to cluster",
 )
 @click.option(
+    "--concat",
+    is_flag=True,
+    help="If true, concatenate all the runs found with the subject, session, and acquistion values passed",
+)
+@click.option(
     "--nvox_weight",
     type=float,
     default=1.0,
@@ -165,6 +183,9 @@ def hierarchical():
     "--run", type=str, default=None, help="Run from dataset to generate target(s) for."
 )
 @click.option(
+    "--acquisition", type=str, default=None, help="Aquisition from dataset to generate target(s) for."
+)
+@click.option(
     "--echo",
     type=str,
     default=None,
@@ -177,10 +198,17 @@ def hierarchical():
     show_default=True,
     help="Number of jobs to run in parallel to find targets",
 )
+@click.option(
+    "--overwrite",
+    is_flag=True,
+    help="Overwrite existing outputs",
+)
 def run(
     bids_dir,
     derivatives_dir,
     database_file,
+    fmriprep_dir,
+    tedana_dir,
     run_name,
     stimroi_name,
     stimroi_path,
@@ -193,23 +221,38 @@ def run(
     linkage,
     adjacency,
     distance_threshold,
+    concat,
     nvox_weight,
     concentration_weight,
     net_reference_correlation_weight,
     subject,
     session,
     run,
+    acquisition,
     echo,
     njobs,
+    overwrite
 ):
     bids_dir = Path(bids_dir)
     derivatives_dir = Path(derivatives_dir)
     database_path = Path(database_file)
-    roi_dir = Path(resource_filename("contarg", "data/rois"))
+    if fmriprep_dir is None:
+        fmriprep_dir = derivatives_dir / 'fmriprep'
+    fmriprep_dir = Path(fmriprep_dir)
+    if not fmriprep_dir.exists():
+        raise FileNotFoundError(fmriprep_dir)
+    if tedana_dir is not None:
+        tedana = True
+        tedana_dir = Path(tedana_dir)
+        if not tedana_dir.exists():
+            raise FileNotFoundError(tedana_dir)
+        derivatives = [fmriprep_dir, tedana_dir]
+    else:
+        derivatives = fmriprep_dir
     layout = BIDSLayout(
         bids_dir,
         database_path=database_path,
-        derivatives=derivatives_dir / "fmriprep",
+        derivatives=derivatives,
     )
     if run_name is not None:
         targeting_dir = derivatives_dir / "contarg" / "hierarchical" / run_name
@@ -238,11 +281,97 @@ def run(
         get_kwargs["run"] = run
     if echo is not None:
         get_kwargs["echo"] = echo
+    if acquisition is not None:
+        get_kwargs["acquisition"] = acquisition
+    if tedana:
+        get_kwargs["desc"] = "optcomDenoised"
+        get_kwargs.pop("space")
     bolds = layout.get(**get_kwargs)
-    rest_paths = pd.DataFrame([bb.get_entities() for bb in bolds])
-    rest_paths["entities"] = [bb.get_entities() for bb in bolds]
-    rest_paths["bold_obj"] = bolds
-    rest_paths["bold_path"] = [bb.path for bb in bolds]
+    counfound_paths = None
+    if tedana:
+        boldtd_paths = [bb.path for bb in bolds]
+        bold_paths = []
+        confound_paths = []
+        for boldtd_path in boldtd_paths:
+            T1wboldtd_path, MNIboldtd_path, trunc_confounds_path = prep_tedana_for_hierarchical(
+                boldtd_path,
+                fmriprep_dir,
+                targeting_dir,
+                n_dummy,
+                njobs,
+                overwrite=overwrite
+            )
+            if space == 'T1w':
+                bold_paths.append(T1wboldtd_path)
+            elif space == 'MNI152NLin6Asym':
+                bold_paths.append(MNIboldtd_path)
+            confound_paths.append(trunc_confounds_path)
+        # set n_dummy to 0 as these have been dropped now for the tedana images and confounds
+        n_dummy = 0
+    else:
+        bold_paths = [bb.path for bb in bolds]
+        for bold_path in bold_paths:
+            confounds_ents = dict(desc="confounds", suffix="timeseries", extension="tsv")
+            confounds_path = update_bidspath(
+                bold_path, fmriprep_dir, confounds_ents, exists=True
+            )
+    # clean bolds so they can be concatted
+    clean_bolds = []
+    for bold_path, confound_path in zip(bold_paths, confound_paths):
+        # inputs
+        boldmask_ents = dict(
+            desc="brain",
+            suffix="mask",
+        )
+        boldmask_path = update_bidspath(
+            bold_path, fmriprep_dir, boldmask_ents, exists=True
+        )
+        # output paths
+        cleaned_bold_ents = dict(desc=parse_bidsname(bold_path).get("desc", "") + "GSR")
+        cleaned_bold_path = update_bidspath(bold_path, targeting_dir, cleaned_bold_ents)
+        cleaned_bold_path.parent.mkdir(exist_ok=True, parents=True)
+
+        if not overwrite and cleaned_bold_path.exists():
+            pass
+        else:
+            if tedana:
+                confound_selectors = ["-gs", "-motion", "-dummy", "-cosine"]
+            else:
+                confound_selectors = ["-gs", "-motion", "-cosine"]
+
+            cfds = select_confounds(confound_path, confound_selectors)
+            # clean bold
+            cleaned = nl.image.clean_img(
+                nl.image.load_img(bold_path).slicer[:, :, :, n_dummy:],
+                confounds=cfds,
+                high_pass=0.01,
+                low_pass=0.1,
+                mask_img=nl.image.load_img(boldmask_path),
+                t_r=t_r,
+            )
+            cleaned.to_filename(cleaned_bold_path)
+        clean_bolds.append(cleaned_bold_path)
+
+    if concat:
+        bolds = []
+        clean_concat_path = update_bidspath(clean_bolds[0], targeting_dir, updates={}, exclude='run')
+        if not overwrite and clean_concat_path.exists():
+            pass
+        else:
+            clean_bold_imgs = [nl.image.load_img(cbi) for cbi in clean_bolds]
+            frames = []
+            for img in clean_bold_imgs:
+                frames.extend([i for i in nl.image.iter_img(img)])
+            clean_concat_img = nl.image.concat_imgs(frames, ensure_ndim=4)
+            clean_concat_img.to_filename(clean_concat_path)
+        bolds.append(clean_concat_path)
+    # get a run number to use for things like the bold ref
+    dummy_run_number = parse_bidsname(clean_bolds[0])['run']
+    rest_paths = pd.DataFrame([layout.parse_file_entities(bb) for bb in bolds])
+    rest_paths["entities"] = [layout.parse_file_entities(bb) for bb in bolds]
+    rest_paths["bold_path"] = bolds
+    if concat:
+        rest_paths["confounds"] = None
     if "session" not in rest_paths.columns:
         rest_paths["session"] = None
     # add boldref
@@ -250,8 +379,9 @@ def run(
         lambda ee: layout.get(
             return_type="file",
             subject=ee["subject"],
+            session=ee["session"],
             task=ee["task"],
-            run=ee["run"],
+            run=ee.get("run", dummy_run_number),
             datatype="func",
             space="T1w",
             extension=".nii.gz",
@@ -296,25 +426,9 @@ def run(
     assert rest_paths.mnitoT1w.apply(lambda x: len(x) == 1).all()
     rest_paths["mnitoT1w"] = rest_paths.mnitoT1w.apply(lambda x: x[0])
 
-    # add confounds path
-    rest_paths["confounds"] = rest_paths.entities.apply(
-        lambda ee: layout.get(
-            return_type="file",
-            subject=ee["subject"],
-            task=ee["task"],
-            run=ee["run"],
-            datatype="func",
-            extension=".tsv",
-            suffix="timeseries",
-            desc="confounds",
-        )
-    )
-    assert rest_paths.confounds.apply(lambda x: len(x) == 1).all()
-    rest_paths["confounds"] = rest_paths.confounds.apply(lambda x: x[0])
-
     if space == "T1w":
         # set up paths to transform stim and target rois back to subject space
-        boldmask_pattern = "sub-{subject}/[ses-{session}/]func/sub-{subject}_[ses-{session}_]task-{task}_run-{run}_[echo-{echo}_]atlas-{atlas}_space-{space}_desc-{desc}_{suffix}.{extension}"
+        boldmask_pattern = "sub-{subject}/[ses-{session}/]func/sub-{subject}_[ses-{session}_]task-{task}_[run-{run}_][echo-{echo}_]atlas-{atlas}_space-{space}_desc-{desc}_{suffix}.{extension}"
         stimmask_updates = {
             "desc": stimroi_name,
             "suffix": "mask",
@@ -358,7 +472,7 @@ def run(
         rest_paths["ref_mask_exists"] = rest_paths.ref_mask.apply(lambda x: x.exists())
 
         # set up paths for masks with small connected components dropped
-        boldmask_pattern = "sub-{subject}/[ses-{session}/]func/sub-{subject}_[ses-{session}_]task-{task}_run-{run}_[echo-{echo}_]atlas-{atlas}_space-{space}_desc-{desc}_{suffix}.{extension}"
+        boldmask_pattern = "sub-{subject}/[ses-{session}/]func/sub-{subject}_[ses-{session}_]task-{task}_[run-{run}_][echo-{echo}_]atlas-{atlas}_space-{space}_desc-{desc}_{suffix}.{extension}"
         clnstimmask_updates = {
             "desc": stimroi_name + "Clean",
             "suffix": "mask",
@@ -406,7 +520,7 @@ def run(
     else:
         # TODO: clean this up for custom ROIs
         clnref_roi_2mm_path = (
-            roi_dir / f"{refroi_name + 'masked'}_space-MNI152NLin6Asym_res-02.nii.gz"
+                roi_dir / f"{refroi_name + 'masked'}_space-MNI152NLin6Asym_res-02.nii.gz"
         )
         rest_paths[f"stim_mask"] = stim_roi_2mm_path
         rest_paths["stim_mask_exists"] = True
@@ -602,14 +716,13 @@ def run(
                 distance_threshold=distance_threshold,
                 adjacency=adjacency,
                 smoothing_fwhm=smoothing_fwhm,
-                confound_selectors=["-gs", "-motion", "-dummy"],
+                confound_selectors=None,
                 metric=custom_metric,
                 linkage=linkage,
                 write_pkl=True,
                 return_df=True,
             )
         )
-
     r = Parallel(n_jobs=njobs, verbose=10)(jobs)
     targouts = pd.concat(r)
 
@@ -634,24 +747,28 @@ def run(
         f"{desc}_net_reference_correlation",
         f"{desc}_net_reference_correlation_exists",
     ]
+    kept_cols = [rpc for rpc in rp_cols if rpc in rest_paths.columns]
+    tmp_merge_on = ["subject", "session", "run"]
+    tmp_merge_on = [tt for tt in tmp_merge_on if tt in targouts.columns]
     tmp = targouts.merge(
-        rest_paths.loc[:, rp_cols],
+        rest_paths.loc[:, kept_cols],
         how="left",
-        on=["subject", "session", "run"],
+        on=tmp_merge_on,
         indicator=True,
     )
     assert (tmp._merge != "both").sum() == 0
     targouts_mp = targouts.merge(
-        rest_paths.loc[:, rp_cols], how="left", on=["subject", "session", "run"]
+        rest_paths.loc[:, kept_cols], how="left", on=tmp_merge_on
     )
-
+    if not run in tmp_merge_on:
+        targouts_mp['run'] = 'merged'
     # rank clusters
     targouts_sel = rank_clusters(
         targouts_mp, nvox_weight, concentration_weight, net_reference_correlation_weight
     )
 
     # write out results
-    for ixs, df in targouts_sel.groupby(["run", "session", "subject"], dropna=False):
+    for ixs, df in targouts_sel.groupby(tmp_merge_on[::-1], dropna=False):
         target_row = df.query("overall_rank == 1").iloc[0]
         target_cluster = get_clust_image(target_row)
         target_cluster.to_filename(target_row[f"{desc}_targout_cluster"])

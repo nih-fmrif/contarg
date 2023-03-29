@@ -8,7 +8,10 @@ from sklearn.cluster import AgglomerativeClustering
 from sklearn.feature_extraction.image import grid_to_graph
 from scipy import stats
 from scipy.spatial import distance
-from .utils import select_confounds, idxs_to_flat, idxs_to_zoomed, idxs_to_mask
+from niworkflows.interfaces.fixes import (
+    FixHeaderApplyTransforms as ApplyTransforms,
+)
+from .utils import select_confounds, idxs_to_flat, idxs_to_zoomed, idxs_to_mask, parse_bidsname, update_bidspath
 
 Cluster = namedtuple("Cluster", "id idxs nvox concentration repts medts")
 
@@ -41,14 +44,17 @@ def clust_within_region(
 
     sub_mask = nl.image.load_img(mask_path)
     sub_img = nl.image.load_img(timeseries_path)
-    cfds = select_confounds(confound_path, confound_selectors)
+    if confound_path is None:
+        cfds=None
+    else:
+        cfds = select_confounds(confound_path, confound_selectors)[n_dummy:]
 
     rawts = nl.masking.apply_mask(sub_img, sub_mask, smoothing_fwhm=smoothing_fwhm)[
         n_dummy:
     ]
     clnts = nl.signal.clean(
         rawts,
-        confounds=cfds[n_dummy:],
+        confounds=cfds,
         t_r=t_r,
         detrend=True,
         low_pass=0.1,
@@ -266,14 +272,18 @@ def get_vox_ref_corr(
 
     sub_mask = nl.image.load_img(row.clnstim_mask)
     sub_img = nl.image.load_img(row.bold_path)
-    cfds = select_confounds(row.confounds, confound_selectors)
+    if row.confounds is None:
+        cfds=None
+    else:
+        cfds = select_confounds(row.confounds, confound_selectors)[n_dummy:]
 
     rawts = nl.masking.apply_mask(sub_img, sub_mask, smoothing_fwhm=smoothing_fwhm)[
         n_dummy:
     ]
+
     clnts = nl.signal.clean(
         rawts,
-        confounds=cfds[n_dummy:],
+        confounds=cfds,
         t_r=t_r,
         detrend=True,
         low_pass=0.1,
@@ -299,3 +309,148 @@ def get_com_in_mm(row):
         vox_idxs = np.array([list(rr) + [1] for rr in row.idxs.values[0]])
     vox_locs = np.matmul(clnstim_mask.affine, vox_idxs.T).T[:, :3]
     return vox_locs.mean(0)
+
+
+def prep_tedana_for_hierarchical(
+        boldtd_path,
+        fmriprep_dir,
+        out_dir,
+        n_dummy,
+        nthreads,
+        drop_rundir=True,
+        overwrite=False,
+        # if the following aren't defined, they'll be assumed to be in default locations
+        scanner_to_t1w_path=None,
+        t1w_to_MNI152NLin6Asym_path=None,
+        confounds_path=None,
+        boldref_t1_path=None,
+        boldref_MNI152NLin6Asym_path=None,
+):
+    boldtd_path = Path(boldtd_path)
+    fmriprep_dir = Path(fmriprep_dir)
+    out_dir = Path(out_dir)
+
+    if drop_rundir & ('run' in boldtd_path.parts[-2]):
+        boldtd_path_for_building = boldtd_path.parent.parent / boldtd_path.parts[-1]
+        ents = parse_bidsname(boldtd_path_for_building)
+    else:
+        boldtd_path_for_building = boldtd_path
+        ents = parse_bidsname(boldtd_path)
+
+    # find the root of the tedana dir
+    tedana_root = []
+    for pp in boldtd_path.parts[:-1]:
+        if not pp.split("-")[-1] in ents.values():
+            tedana_root.append(pp)
+    tedana_root = Path(*tedana_root)
+
+    # input paths
+    if scanner_to_t1w_path is None:
+        scanner_to_t1w_ents = {
+            "suffix": "xfm",
+            "extension": "txt",
+            "from": "scanner",
+            "to": "T1w",
+            "mode": "image",
+        }
+        scanner_to_t1w_path = update_bidspath(
+            boldtd_path_for_building,
+            fmriprep_dir,
+            scanner_to_t1w_ents,
+            exclude=["desc"],
+            exists=True,
+        )
+
+    if t1w_to_MNI152NLin6Asym_path is None:
+        t1w_to_MNI152NLin6Asym_ents = {
+            "suffix": "xfm",
+            "extension": "h5",
+            "from": "T1w",
+            "to": "MNI152NLin6Asym",
+            "mode": "image",
+            "type": "anat",
+        }
+        t1w_to_MNI152NLin6Asym_path = update_bidspath(
+            boldtd_path_for_building,
+            fmriprep_dir,
+            t1w_to_MNI152NLin6Asym_ents,
+            exclude=["desc", "ses", "task", "acq", "run"],
+            exists=True,
+        )
+
+    if boldref_t1_path is None:
+        boldref_t1_ents = dict(suffix="boldref", space="T1w")
+        boldref_t1_path = update_bidspath(
+            boldtd_path_for_building, fmriprep_dir, boldref_t1_ents, exclude=["desc"], exists=True
+        )
+
+    if boldref_MNI152NLin6Asym_path is None:
+        boldref_MNI152NLin6Asym_ents = dict(
+            suffix="boldref", space="MNI152NLin6Asym", res="2"
+        )
+        boldref_MNI152NLin6Asym_path = update_bidspath(
+            boldtd_path_for_building,
+            fmriprep_dir,
+            boldref_MNI152NLin6Asym_ents,
+            exclude=["desc"],
+            exists=True,
+        )
+
+    if confounds_path is None:
+        confounds_ents = dict(desc="confounds", suffix="timeseries", extension="tsv")
+        confounds_path = update_bidspath(
+            boldtd_path_for_building, fmriprep_dir, confounds_ents, exists=True
+        )
+
+    # output paths
+    T1wboldtd_ents = dict(space="T1w")
+    T1wboldtd_path = update_bidspath(
+        boldtd_path_for_building, out_dir, T1wboldtd_ents
+    )
+    T1wboldtd_path.parent.mkdir(exist_ok=True, parents=True)
+
+    MNIboldtd_ents = dict(space="MNI152NLin6Asym", res="2")
+    MNIboldtd_path = update_bidspath(
+        boldtd_path_for_building, out_dir, MNIboldtd_ents
+    )
+
+    trunc_confounds_ents = {}
+    trunc_confounds_path = update_bidspath(
+        confounds_path, out_dir, trunc_confounds_ents
+    )
+
+    if not overwrite and MNIboldtd_path.exists() and T1wboldtd_path.exists() and trunc_confounds_path.exists():
+        return T1wboldtd_path, MNIboldtd_path, trunc_confounds_path
+
+    cfds = pd.read_csv(confounds_path, sep="\t")
+    # check if confounds are the correct length, and write out truncated ones if they're not
+    boldtd_img = nl.image.load_img(boldtd_path)
+    if len(cfds) != boldtd_img.shape[-1]:
+        if len(cfds) != (boldtd_img.shape[-1] + n_dummy):
+            raise ValueError(f"Confounds files (length = {len(cfds)}) is not n_dummy ({n_dummy}) TRs longer than boldtd "
+                             f"({boldtd_img.shape[-1]}).")
+        cfds = cfds.loc[n_dummy:, :].copy()
+    cfds.to_csv(trunc_confounds_path, index=None, sep="\t")
+
+
+    # transform cleaned from native space to T1w space
+    at = ApplyTransforms(interpolation="LanczosWindowedSinc", float=True)
+    at.inputs.num_threads = nthreads
+    at.inputs.input_image = boldtd_path
+    at.inputs.output_image = T1wboldtd_path.as_posix()
+    at.inputs.reference_image = boldref_t1_path
+    at.inputs.input_image_type = 3
+    at.inputs.transforms = [scanner_to_t1w_path]
+    _ = at.run()
+
+    # transform cleaned from native space to MNI152NLin6Asym space
+    at = ApplyTransforms(interpolation="LanczosWindowedSinc", float=True)
+    at.inputs.num_threads = nthreads
+    at.inputs.input_image = boldtd_path
+    at.inputs.output_image = MNIboldtd_path.as_posix()
+    at.inputs.reference_image = boldref_MNI152NLin6Asym_path
+    at.inputs.input_image_type = 3
+    at.inputs.transforms = [t1w_to_MNI152NLin6Asym_path, scanner_to_t1w_path]
+    _ = at.run()
+
+    return T1wboldtd_path, MNIboldtd_path, trunc_confounds_path
