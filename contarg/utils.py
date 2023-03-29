@@ -437,7 +437,7 @@ def build_bidsname(parts, exclude=None, order=None):
         return filename
 
 
-def find_bids_files(search_root, exclude=None, order=None, debug=False, **ents):
+def find_bids_files(search_root, exclude=None, order=None, debug=False, try_rundir=True, **ents):
     if exclude is None:
         exclude = []
     else:
@@ -478,7 +478,11 @@ def find_bids_files(search_root, exclude=None, order=None, debug=False, **ents):
     glob_string += f"*{ending}"
     if debug:
         print(search_dir, glob_string, flush=True)
-    return sorted(search_dir.glob(glob_string))
+    res = sorted(search_dir.glob(glob_string))
+    if (len(res) == 0) and try_rundir:
+        glob_string = f'run-{ents.get("run", "*")}/{glob_string}'
+        res = sorted(search_dir.glob(glob_string))
+    return res
 
 
 def get_rel_path(source_path, target_path):
@@ -545,7 +549,7 @@ def make_rel_symlink(source_path, target_path):
 
 
 def update_bidspath(
-    orig_path, new_bids_root, updates, exists=False, exclude=None, order=None
+    orig_path, new_bids_root, updates, exists=False, exclude=None, order=None, keep_rundir=False
 ):
     """
     Creates a BIDS-ish file path based on the entities in orig_paths with the specified changes.
@@ -564,6 +568,8 @@ def update_bidspath(
         A list of BIDS keys to exclude when constructing the new file path. Defaults to None.
     order : list, optional
         A list specifying the order in which BIDS keys should be included in the new file path. Defaults to None.
+    keep_rundir : bool, optional
+        If true and if there is a run directory between datatype and files, make sure it's there in the output too.
 
     Returns
     -------
@@ -590,6 +596,12 @@ def update_bidspath(
 
     """
     orig_path = Path(orig_path)
+    insert_rundir = False
+    if keep_rundir:
+        if 'run-' in orig_path.parts[-2]:
+            orig_path = orig_path.parent.parent / orig_path.parts[-1]
+            insert_rundir = True
+
     if exclude is None:
         exclude = []
     new_bids_root = Path(new_bids_root)
@@ -608,9 +620,11 @@ def update_bidspath(
         )
     else:
         new_path = new_bids_root / f"sub-{new_ents['sub']}/{new_name}"
+    if insert_rundir:
+        new_path = new_path.parent / f"run-{new_ents['run']}"/new_path.parts[-1]
     if exists:
         if not new_path.exists():
-            raise FileNotFoundError(new_path)
+            raise FileNotFoundError(f'{new_path}')
 
     return new_path
 
