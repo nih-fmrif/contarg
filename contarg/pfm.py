@@ -176,6 +176,9 @@ def pfm_inputs_from_tedana(
     nthreads,
     noinputprep=False,
     overwrite=False,
+    drop_rundir=True,
+    ciftis_out=True,
+    regress_gm=True,
     # if the following aren't defined, they'll be assumed to be in default locations
     subjects_dir=None,
     scanner_to_t1w_path=None,
@@ -190,7 +193,13 @@ def pfm_inputs_from_tedana(
     boldref_MNI152NLin6Asym_path=None,
 ):
     boldtd_path = Path(boldtd_path)
-    ents = parse_bidsname(boldtd_path)
+
+    if drop_rundir:
+        if 'run' in boldtd_path.parts[-1]:
+            boldtd_path_for_building = boldtd_path.parent.parent / boldtd_path.parts[-1]
+            ents = parse_bidsname(boldtd_path_for_building)
+    else:
+        ents = parse_bidsname(boldtd_path)
 
     # find the root of the tedana dir
     tedana_root = []
@@ -218,7 +227,7 @@ def pfm_inputs_from_tedana(
             "mode": "image",
         }
         scanner_to_t1w_path = update_bidspath(
-            boldtd_path,
+            boldtd_path_for_building,
             fmriprep_dir,
             scanner_to_t1w_ents,
             exclude=["desc"],
@@ -234,7 +243,7 @@ def pfm_inputs_from_tedana(
             "mode": "image",
         }
         t1w_to_scanner_path = update_bidspath(
-            boldtd_path,
+            boldtd_path_for_building,
             fmriprep_dir,
             t1w_to_scanner_ents,
             exclude=["desc"],
@@ -251,7 +260,7 @@ def pfm_inputs_from_tedana(
             "type": "anat",
         }
         t1w_to_fsnative_path = update_bidspath(
-            boldtd_path,
+            boldtd_path_for_building,
             fmriprep_dir,
             t1w_to_fsnative_ents,
             exclude=["desc", "ses", "task", "acq", "run"],
@@ -268,7 +277,7 @@ def pfm_inputs_from_tedana(
             "type": "anat",
         }
         t1w_to_MNI152NLin6Asym_path = update_bidspath(
-            boldtd_path,
+            boldtd_path_for_building,
             fmriprep_dir,
             t1w_to_MNI152NLin6Asym_ents,
             exclude=["desc", "ses", "task", "acq", "run"],
@@ -280,7 +289,7 @@ def pfm_inputs_from_tedana(
             label="GM", suffix="probseg", type="anat", extension=".nii.gz"
         )
         gmseg_path = update_bidspath(
-            boldtd_path,
+            boldtd_path_for_building,
             fmriprep_dir,
             gmseg_ents,
             exclude=["ses", "task", "acq", "run", "desc"],
@@ -293,13 +302,13 @@ def pfm_inputs_from_tedana(
             suffix="mask",
         )
         boldmask_path = update_bidspath(
-            boldtd_path, fmriprep_dir, boldmask_ents, exists=True
+            boldtd_path_for_building, fmriprep_dir, boldmask_ents, exists=True
         )
 
     if boldref_t1_path is None:
         boldref_t1_ents = dict(suffix="boldref", space="T1w")
         boldref_t1_path = update_bidspath(
-            boldtd_path, fmriprep_dir, boldref_t1_ents, exclude=["desc"], exists=True
+            boldtd_path_for_building, fmriprep_dir, boldref_t1_ents, exclude=["desc"], exists=True
         )
 
     if boldref_MNI152NLin6Asym_path is None:
@@ -307,7 +316,7 @@ def pfm_inputs_from_tedana(
             suffix="boldref", space="MNI152NLin6Asym", res="2"
         )
         boldref_MNI152NLin6Asym_path = update_bidspath(
-            boldtd_path,
+            boldtd_path_for_building,
             fmriprep_dir,
             boldref_MNI152NLin6Asym_ents,
             exclude=["desc"],
@@ -317,23 +326,23 @@ def pfm_inputs_from_tedana(
     if confounds_path is None:
         confounds_ents = dict(desc="confounds", suffix="timeseries", extension="tsv")
         confounds_path = update_bidspath(
-            boldtd_path, fmriprep_dir, confounds_ents, exists=True
+            boldtd_path_for_building, fmriprep_dir, confounds_ents, exists=True
         )
 
     if t2starmap_path is None:
         t2starmap_ents = dict(suffix="T2starmap", extension=".nii.gz")
         t2starmap_path = update_bidspath(
-            boldtd_path, tedana_root, t2starmap_ents, exclude="desc", exists=True
+            boldtd_path, tedana_root, t2starmap_ents, exclude="desc", exists=True, keep_rundir=True
         )
 
     # output paths
     cleaned_boldtd_ents = dict(desc=ents["desc"] + "MGTR")
-    cleaned_boldtd_path = update_bidspath(boldtd_path, out_dir, cleaned_boldtd_ents)
+    cleaned_boldtd_path = update_bidspath(boldtd_path_for_building, out_dir, cleaned_boldtd_ents)
     cleaned_boldtd_path.parent.mkdir(exist_ok=True, parents=True)
 
     scanner_gmseg_ents = dict(space="scanner", label="GM", suffix="probseg")
     scanner_gmseg_path = update_bidspath(
-        boldtd_path, out_dir, scanner_gmseg_ents, exclude="desc"
+        boldtd_path_for_building, out_dir, scanner_gmseg_ents, exclude="desc"
     )
     scanner_gmseg_path.parent.mkdir(exist_ok=True, parents=True)
 
@@ -349,7 +358,7 @@ def pfm_inputs_from_tedana(
 
     wf_basedir_path = Path(
         update_bidspath(
-            boldtd_path,
+            boldtd_path_for_building,
             out_dir,
             dict(desc="workflows"),
             exclude=["suffix", "extension"],
@@ -366,6 +375,7 @@ def pfm_inputs_from_tedana(
     if not overwrite and cleaned_boldtdnii_path.exists():
         return cleaned_boldtdnii_path
 
+    # write MCF file
     mcf_ents = dict(extension="par", suffix="timeseries", desc="MCF")
     mcf_path = update_bidspath(cleaned_boldtd_path, out_dir, mcf_ents)
     mcf_from_fmriprep_confounds(confounds_path, mcf_path, n_dummy=n_dummy)
@@ -387,6 +397,7 @@ def pfm_inputs_from_tedana(
     gm_data = boldtd.get_fdata() * gmseg_dat
     gm_timeseries = gm_data[(gmseg_dat != 0).squeeze()].mean(0)
 
+    # TODO: add drift terms
     # add mean gm to timeseries
     confounds = [
         "trans_x",
@@ -411,7 +422,8 @@ def pfm_inputs_from_tedana(
         cfds_to_use["gm"] = gm_timeseries
         n_dummy = 0
 
-    # write MCF file
+    if not regress_gm:
+        cfds_to_use = cfds_to_use.drop('gm', axis=1)
 
     # clean boldtd
     cleaned = nl.image.clean_img(
@@ -445,57 +457,60 @@ def pfm_inputs_from_tedana(
     at.inputs.transforms = [t1w_to_MNI152NLin6Asym_path, scanner_to_t1w_path]
     _ = at.run()
 
-    # create fsaverage giftis from T1w space bold
-    bold_surf_wf = init_bold_surf_wf(
-        mem_gb=20, surface_spaces=["fsaverage"], medial_surface_nan=False
-    )
+    if ciftis_out:
+        # create fsaverage giftis from T1w space bold
+        bold_surf_wf = init_bold_surf_wf(
+            mem_gb=20, surface_spaces=["fsaverage"], medial_surface_nan=False
+        )
 
-    bold_surf_wf.inputs.inputnode.source_file = cleaned_T1wboldtd_path
-    bold_surf_wf.inputs.inputnode.subject_id = f'sub-{ents["sub"]}'
-    bold_surf_wf.inputs.inputnode.subjects_dir = subjects_dir
-    bold_surf_wf.inputs.inputnode.t1w2fsnative_xfm = t1w_to_fsnative_path.as_posix()
+        bold_surf_wf.inputs.inputnode.source_file = cleaned_T1wboldtd_path
+        bold_surf_wf.inputs.inputnode.subject_id = f'sub-{ents["sub"]}'
+        bold_surf_wf.inputs.inputnode.subjects_dir = subjects_dir
+        bold_surf_wf.inputs.inputnode.t1w2fsnative_xfm = t1w_to_fsnative_path.as_posix()
 
-    bold_surf_wf.base_dir = wf_basedir_path
-    bold_surf_wf.run()
+        bold_surf_wf.base_dir = wf_basedir_path
+        bold_surf_wf.run()
 
-    lh = (
-        wf_basedir_path
-        / "bold_surf_wf/_target_fsaverage/update_metadata/mapflow/_update_metadata0/lh.fsaverage.gii"
-    )
-    rh = (
-        wf_basedir_path
-        / "bold_surf_wf/_target_fsaverage/update_metadata/mapflow/_update_metadata1/rh.fsaverage.gii"
-    )
+        lh = (
+            wf_basedir_path
+            / "bold_surf_wf/_target_fsaverage/update_metadata/mapflow/_update_metadata0/lh.fsaverage.gii"
+        )
+        rh = (
+            wf_basedir_path
+            / "bold_surf_wf/_target_fsaverage/update_metadata/mapflow/_update_metadata1/rh.fsaverage.gii"
+        )
 
-    # create fsLR ciftis
-    bold_grayords_wf = init_bold_grayords_wf(
-        grayord_density="91k",
-        mem_gb=20,
-        repetition_time=t_r,
-    )
+        # create fsLR ciftis
+        bold_grayords_wf = init_bold_grayords_wf(
+            grayord_density="91k",
+            mem_gb=20,
+            repetition_time=t_r,
+        )
 
-    bold_grayords_wf.inputs.inputnode.spatial_reference = ["MNI152NLin6Asym_res-2"]
-    bold_grayords_wf.inputs.inputnode.bold_std = [cleaned_MNIboldtd_path]
-    bold_grayords_wf.inputs.inputnode.surf_refs = ["fsaverage"]
-    bold_grayords_wf.inputs.inputnode.surf_files = [[lh, rh]]
-    bold_grayords_wf.base_dir = wf_basedir_path
+        bold_grayords_wf.inputs.inputnode.spatial_reference = ["MNI152NLin6Asym_res-2"]
+        bold_grayords_wf.inputs.inputnode.bold_std = [cleaned_MNIboldtd_path]
+        bold_grayords_wf.inputs.inputnode.surf_refs = ["fsaverage"]
+        bold_grayords_wf.inputs.inputnode.surf_files = [[lh, rh]]
+        bold_grayords_wf.base_dir = wf_basedir_path
 
-    bold_grayords_wf.run()
+        bold_grayords_wf.run()
 
-    # TODO: replace with a proper io node
-    grayords_nii_out = list(
-        (wf_basedir_path / "bold_grayords_wf/gen_cifti").glob("*.dtseries.nii")
-    )[0]
-    grayords_json_out = list(
-        (wf_basedir_path / "bold_grayords_wf/gen_cifti").glob("*.dtseries.json")
-    )[0]
+        # TODO: replace with a proper io node
+        grayords_nii_out = list(
+            (wf_basedir_path / "bold_grayords_wf/gen_cifti").glob("*.dtseries.nii")
+        )[0]
+        grayords_json_out = list(
+            (wf_basedir_path / "bold_grayords_wf/gen_cifti").glob("*.dtseries.json")
+        )[0]
 
-    shutil.copyfile(grayords_nii_out, cleaned_boldtdnii_path)
-    shutil.copyfile(
-        grayords_json_out, cleaned_boldtdnii_path.as_posix().replace(".nii", ".json")
-    )
+        shutil.copyfile(grayords_nii_out, cleaned_boldtdnii_path)
+        shutil.copyfile(
+            grayords_json_out, cleaned_boldtdnii_path.as_posix().replace(".nii", ".json")
+        )
 
-    return cleaned_boldtdnii_path
+        return cleaned_boldtdnii_path
+    else:
+        return cleaned_T1wboldtd_path, cleaned_MNIboldtd_path
 
 
 def build_pfm_inputdir(subdir, t_r, tedana=False):
