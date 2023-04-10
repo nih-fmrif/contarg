@@ -133,15 +133,33 @@ hull using Mango.
 # DLPFC + brainmask
 3dcalc -a BA9sphere_space-MNI152NLin6Asym_res-02.nii.gz -b BA46sphere_space-MNI152NLin6Asym_res-02.nii.gz \
        -c 5cmsphere_space-MNI152NLin6Asym_res-02.nii.gz -d F3sphere_space-MNI152NLin6Asym_res-02.nii.gz  \
-       -e ~/.cache/templateflow/tpl-MNI152NLin6Asym/tpl-MNI152NLin6Asym_res-02_desc-brain_T1w.nii.gz \
+       -e ~/.cache/templateflow/tpl-MNI152NLin6Asym/tpl-MNI152NLin6Asym_res-02_desc-brain_mask.nii.gz \
        -expr 'and(step(a + b + c + d),e)'  \
-       -prefix DLPFCspheresmasked_space-MNI152NLin6Asym_res-02.nii.gz
+       -prefix DLPFCspheresmasked_space-MNI152NLin6Asym_res-02.nii.gz -overwrite
        
 # BA46 + brainmask
-3dcalc -a /usr/local/apps/fsl/6.0.4/data/standard/MNI152_T1_2mm.nii.gz   \
-       -b ~/.cache/templateflow/tpl-MNI152NLin6Asym/tpl-MNI152NLin6Asym_res-02_desc-brain_T1w.nii.gz \
+3dcalc -a BA46sphere_space-MNI152NLin6Asym_res-02.nii.gz   \
+       -b ~/.cache/templateflow/tpl-MNI152NLin6Asym/tpl-MNI152NLin6Asym_res-02_desc-brain_mask.nii.gz \
        -expr 'and(a,b)' \
-       -prefix BA46spheremasked_space-MNI152NLin6Asym_res-02.nii.gz
+       -prefix BA46spheremasked_space-MNI152NLin6Asym_res-02.nii.gz -overwrite
+       
+# dilated DLPFC + brainmask
+3dcalc -a dilatedDLPFCspheres_space-MNI152NLin6Asym_res-02.nii.gz  \
+       -b ~/.cache/templateflow/tpl-MNI152NLin6Asym/tpl-MNI152NLin6Asym_res-02_desc-brain_mask.nii.gz \
+       -expr 'and(a,b)'  \
+       -prefix dilatedDLPFCspheresmasked_space-MNI152NLin6Asym_res-02.nii.gz -overwrite
+
+# coleBA46 + brainmask
+3dcalc -a coleBA46_space-MNI152NLin6Asym_res-02.nii.gz  \
+       -b ~/.cache/templateflow/tpl-MNI152NLin6Asym/tpl-MNI152NLin6Asym_res-02_desc-brain_mask.nii.gz \
+       -expr 'and(a,b)'  \
+       -prefix coleBA46masked_space-MNI152NLin6Asym_res-02.nii.gz -overwrite
+       
+# expanded coleBA46 + brainmask, (coleBA46 + talairach demon BA46 manually epxanded into the cortex)
+3dcalc -a expandedcoleBA46_space-MNI152NLin6Asym_res-02.nii.gz  \
+       -b ~/.cache/templateflow/tpl-MNI152NLin6Asym/tpl-MNI152NLin6Asym_res-02_desc-brain_mask.nii.gz \
+       -expr 'and(a,b)'  \
+       -prefix expandedcoleBA46masked_space-MNI152NLin6Asym_res-02.nii.gz -overwrite
 ```
 
 
