@@ -17,6 +17,7 @@ from contarg.utils import (
     build_bidsname,
     make_rel_symlink,
     update_bidspath,
+    find_bids_files
 )
 
 
@@ -193,6 +194,7 @@ def pfm_inputs_from_tedana(
     boldref_MNI152NLin6Asym_path=None,
 ):
     boldtd_path = Path(boldtd_path)
+    print(f"processing {boldtd_path}")
 
     if drop_rundir:
         if 'run' in boldtd_path.parts[-1]:
@@ -264,8 +266,20 @@ def pfm_inputs_from_tedana(
             fmriprep_dir,
             t1w_to_fsnative_ents,
             exclude=["desc", "ses", "task", "acq", "run"],
-            exists=True,
         )
+        if not t1w_to_fsnative_path.exists():
+            try:
+                t1w_to_fsnative_path = find_bids_files(fmriprep_dir,  **parse_bidsname(t1w_to_fsnative_path))[0]
+            except IndexError:
+                t1w_to_fsnative_path = update_bidspath(
+                    boldtd_path_for_building,
+                    fmriprep_dir,
+                    t1w_to_fsnative_ents,
+                    exclude=["desc", "task", "acq", "run"],
+                )
+                t1w_to_fsnative_path = find_bids_files(fmriprep_dir,  **parse_bidsname(t1w_to_fsnative_path))[0]
+            if not t1w_to_fsnative_path.exists():
+                raise FileNotFoundError(t1w_to_fsnative_path.as_posix())
 
     if t1w_to_MNI152NLin6Asym_path is None:
         t1w_to_MNI152NLin6Asym_ents = {
@@ -281,8 +295,20 @@ def pfm_inputs_from_tedana(
             fmriprep_dir,
             t1w_to_MNI152NLin6Asym_ents,
             exclude=["desc", "ses", "task", "acq", "run"],
-            exists=True,
         )
+        if not t1w_to_MNI152NLin6Asym_path.exists():
+            try:
+                t1w_to_MNI152NLin6Asym_path = find_bids_files(fmriprep_dir,  **parse_bidsname(t1w_to_MNI152NLin6Asym_path))[0]
+            except IndexError:
+                t1w_to_MNI152NLin6Asym_path = update_bidspath(
+                    boldtd_path_for_building,
+                    fmriprep_dir,
+                    t1w_to_MNI152NLin6Asym_ents,
+                    exclude=["desc", "task", "acq", "run"],
+                )
+                t1w_to_MNI152NLin6Asym_path = find_bids_files(fmriprep_dir, **parse_bidsname(t1w_to_MNI152NLin6Asym_path))[0]
+            if not t1w_to_MNI152NLin6Asym_path.exists():
+                raise FileNotFoundError(t1w_to_MNI152NLin6Asym_path.as_posix())
 
     if gmseg_path is None:
         gmseg_ents = dict(
@@ -293,8 +319,20 @@ def pfm_inputs_from_tedana(
             fmriprep_dir,
             gmseg_ents,
             exclude=["ses", "task", "acq", "run", "desc"],
-            exists=True,
         )
+        if not gmseg_path.exists():
+            try:
+                gmseg_path = find_bids_files(fmriprep_dir,  **parse_bidsname(gmseg_path))[0]
+            except IndexError:
+                gmseg_path = update_bidspath(
+                    boldtd_path_for_building,
+                    fmriprep_dir,
+                    gmseg_ents,
+                    exclude=["task", "acq", "run", "desc"],
+                )
+                gmseg_path = find_bids_files(fmriprep_dir, **parse_bidsname(gmseg_path))[0]
+            if not gmseg_path.exists():
+                raise FileNotFoundError(gmseg_path.as_posix())
 
     if boldmask_path is None:
         boldmask_ents = dict(
@@ -335,6 +373,7 @@ def pfm_inputs_from_tedana(
             boldtd_path, tedana_root, t2starmap_ents, exclude="desc", exists=True, keep_rundir=True
         )
 
+
     # output paths
     cleaned_boldtd_ents = dict(desc=ents["desc"] + "MGTR")
     cleaned_boldtd_path = update_bidspath(boldtd_path_for_building, out_dir, cleaned_boldtd_ents)
@@ -369,6 +408,7 @@ def pfm_inputs_from_tedana(
     cleaned_boldtdnii_path = update_bidspath(
         cleaned_boldtd_path, out_dir, cleaned_boldtdnii_ents
     )
+
     if noinputprep:
         return cleaned_boldtdnii_path
 
@@ -397,7 +437,6 @@ def pfm_inputs_from_tedana(
     gm_data = boldtd.get_fdata() * gmseg_dat
     gm_timeseries = gm_data[(gmseg_dat != 0).squeeze()].mean(0)
 
-    # TODO: add drift terms
     # add mean gm to timeseries
     confounds = [
         "trans_x",
@@ -413,6 +452,7 @@ def pfm_inputs_from_tedana(
     confound_names = confounds.copy()
     if aroma:
         confound_names += [nn for nn in cfds.columns if "aroma" in nn]
+    confound_names += [nn for nn in cfds.columns if "cosine" in nn]
     cfds_to_use = cfds.loc[n_dummy:, confound_names].copy()
 
     # if boldtd has already had dummy scans dropped, this will produce a ValueError, set n_dummy to 0 going forward
