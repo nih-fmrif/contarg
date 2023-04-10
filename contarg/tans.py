@@ -770,6 +770,7 @@ def mask_to_cifti(mask, out_dir, **kwargs):
         cifti_path,
         **kwargs,
     )
+    return cifti_path
 
 
 def _create_cifti_image(
@@ -959,9 +960,13 @@ def tans_inputs_from_fmriprep(fmriprep_dir, out_dir, subject, overwrite=False):
         raise ValueError(f"Couldn't find freesurfer directory at {subjects_dir}")
 
     subj_out_dir = out_dir / f"sub-{subject}/anat"
+    subj_out_dir.mkdir(exist_ok=True, parents=True)
     out_t2 = subj_out_dir / f"sub-{subject}_desc-preproc_T2w.nii.gz"
     if not out_t2.exists():
-        make_fmriprep_t2(fmriprep_dir, subject, subj_out_dir)
+        try:
+            make_fmriprep_t2(fmriprep_dir, subject, subj_out_dir)
+        except FileNotFoundError:
+            pass
     for h in ["l", "r"]:
         freesurfer_resample_prep(
             subject, subjects_dir, h, subj_out_dir, overwrite=overwrite

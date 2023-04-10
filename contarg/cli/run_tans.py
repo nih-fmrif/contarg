@@ -14,6 +14,7 @@ from contarg.tans import (
     write_sim_script,
     get_spatial_correlation,
     get_correlation_map,
+    mask_to_cifti
 )
 from contarg.pfm import pfm_inputs_from_tedana, pfm_inputs_from_fmriprep
 from contarg.utils import (
@@ -24,6 +25,7 @@ from contarg.utils import (
     parse_bidsname,
     REFROIS,
     STIMROIS,
+    t1w_mask_to_mni
 )
 
 
@@ -180,10 +182,19 @@ def prepanat(fmriprep_dir, out_dir, subject, overwrite):
 )
 @click.option(
     "--target-method",
-    type=click.Choice(["DCSS", "reference"]),
+    type=click.Choice(["DCSS", "reference", "precomputed"]),
     default="DCSS",
-    help="Method for selecting a target,depression circuit spatial similarity (DCSS) "
-    "and correlation with a reference seed are implemented (reference).",
+    help="Method for selecting a target,depression circuit spatial similarity (DCSS), "
+    "correlation with a reference seed (reference), "
+    "and use of a precomputed mask (precomputed) are implemented.",
+)
+@click.option(
+    "--precomputed-path",
+    type=click.Path(exists=True),
+    default=None,
+    help="If method is 'precomputed', you must pass a path to the precomputed mask. "
+         "If it's in T1w space, will attempt to transform it to MNI152NLin6Asym "
+         "so that it can be converted to a surface.",
 )
 @click.option(
     "--stimroi-name",
@@ -251,7 +262,7 @@ def prepanat(fmriprep_dir, out_dir, subject, overwrite):
     default=2.5,
     help="Gaussian smoothing to apply to volumetric data",
 )
-@click.option("--subject", type=str, default=None, help="Subject id.", required=True)
+@click.option("--subject", type=str, help="Subject id.", required=True)
 @click.option(
     "--session",
     type=str,
@@ -317,6 +328,7 @@ def run(
     tedana_dir,
     subjects_dir,
     target_method,
+    precomputed_path,
     stimroi_name,
     stimroi_path,
     refroi_name,
@@ -347,7 +359,7 @@ def run(
         tedana_dir = Path(tedana_dir)
         if not tedana_dir.exists():
             raise FileNotFoundError(tedana_dir)
-    if target_method not in ["DCSS", "reference"]:
+    if target_method not in ["DCSS", "reference", "precomputed"]:
         raise NotImplementedError(
             "I've only implemented depression circuit spatial similarity (DCSS) and reference correlation for TANS."
         )
@@ -521,7 +533,6 @@ def run(
         subprocess.run(cmd, check=True)
         smoothed_paths.append(smoothed_path)
 
-    # get spatial similarity to depression circuit
     target_mask_updates = dict(
         desc=f"{target_method}Target", suffix="mask", space="fsLR", den="91k"
     )
@@ -531,6 +542,7 @@ def run(
 
     print("Finding Targets", flush=True)
     if target_method == "DCSS":
+        # get spatial similarity to depression circuit
         similarity_updates = dict(
             desc="DepCircSimMap", suffix="stat", space="fsLR", den="91k"
         )
@@ -549,7 +561,7 @@ def run(
             target_data = (similarity_data >= threshold).astype(np.float32)
         target_img = ci.Cifti2Image(target_data, similarity_img.header)
         target_img.to_filename(target_mask_path)
-    if target_method == "reference":
+    elif target_method == "reference":
         correlation_updates = dict(
             desc=f"{refroi_name}Corr", suffix="stat", space="fsLR", den="91k"
         )
@@ -574,6 +586,16 @@ def run(
             target_data = (correlation_data >= threshold).astype(np.float32)
         target_img = ci.Cifti2Image(target_data, correlation_img.header)
         target_img.to_filename(target_mask_path)
+    elif target_method == "precomputed":
+        if parse_bidsname(precomputed_path)['space'] == 'T1w':
+            precomputed_mni_path = t1w_mask_to_mni(precomputed_path, fmriprep_dir, out_dir)
+        elif (parse_bidsname(precomputed_path)['space'] == 'MNI152NLin6Asym') and (parse_bidsname(precomputed_path)['res'] == '2'):
+            precomputed_mni_path = precomputed_path
+        else:
+            raise ValueError(f"precomputed_path must have a parsebly bidsish name and be in T1w or MNI152NLin6Asym "
+                             f"res-2 space. {precomputed_path} was received instead")
+        target_mask_path = mask_to_cifti(precomputed_mni_path, precomputed_mni_path.parent)
+
 
     # build headmodel
     t1_paths = find_bids_files(
@@ -582,6 +604,18 @@ def run(
     t1_paths = [tp for tp in t1_paths if "space" not in tp.parts[-1]]
     if len(t1_paths) > 1:
         raise ValueError(f"Looking for a single T1, found {len(t1_paths)}: {t1_paths}")
+    elif len(t1_paths) == 0:
+        t1_paths = find_bids_files(
+            fmriprep_dir / f"sub-{subject}", ses="*", type="anat", suffix="T1w", extension=".nii.gz"
+        )
+        t1_paths = [tp for tp in t1_paths if "space" not in tp.parts[-1]]
+        if len(t1_paths) > 1:
+            raise ValueError(f"Looking for a single T1, found {len(t1_paths)}: {t1_paths}")
+        elif len(t1_paths) == 0:
+            find_bids_files(
+                fmriprep_dir / f"sub-{subject}", debug=True, ses="*", type="anat", suffix="T1w", extension=".nii.gz"
+            )
+            raise ValueError(f"Couldn't find a T1.")
     t1w_path = t1_paths[0]
 
     t2_paths = find_bids_files(
@@ -590,7 +624,10 @@ def run(
     t2_paths = [tp for tp in t2_paths if "space" not in tp.parts[-1]]
     if len(t2_paths) > 1:
         raise ValueError(f"Looking for a single T2, found {len(t2_paths)}: {t2_paths}")
-    t2w_path = t2_paths[0]
+    elif len(t2_paths) == 0:
+        t2w_path=None
+    else:
+        t2w_path = t2_paths[0]
 
     os.environ["MPLBACKEND"] = "PDF"
     os.environ["OMP_NUM_THREADS"] = "2"
@@ -628,7 +665,7 @@ def run(
             msc_path=config["TANS"]["midnightscanclubpath"],
             simnibs_path=config["TANS"]["simnibspath"],
             tans_path=config["TANS"]["tanspath"],
-            nthreads=20,
+            nthreads=nthreads,
         )
         sim_script_path = f"'{sim_script_path}'"
         cmd = [
@@ -640,6 +677,12 @@ def run(
         ]
         print(f"running {' '.join(cmd)}", flush=True)
         subprocess.run(cmd, check=True)
+
+        # check to see if sim outputs are there
+        sim_out_dir = subses_out_dir / 'SearchGrid'
+        sim_res = sorted(sim_out_dir.glob('magnE_*.dtseries.nii'))
+        if len(sim_res) == 0:
+            raise FileNotFoundError(f"Couldn't find any simulation outputs of form magnE_*.dtseries.nii in {sim_out_dir}")
 
     if not nooptimization:
         # write optimization script and run it
@@ -665,3 +708,21 @@ def run(
         ]
         print(f"running {' '.join(cmd)}", flush=True)
         subprocess.run(cmd, check=True)
+
+        # check to see if it worked
+        expected_files = [
+            'CoilCenter.foci',
+            'CoilOrientationCoordinates.txt',
+            'CoilCenter_OnTarget_s0.85.shape.gii',
+            'CoilOrientation_OnTarget.shape.gii',
+            'CoilOrientation_OnTarget_s0.85.shape.gii',
+            'CoilCenter_OnTarget.shape.gii',
+            'CoilOrientation.foci',
+            'CoilCenter_OnTarget.mat',
+            'CoilCenterCoordinates.txt'
+        ]
+        opt_out_dir = subses_out_dir / 'Optimize'
+        for ef_name in expected_files:
+            ef_path = opt_out_dir / ef_name
+            if not ef_path.exists():
+                raise FileNotFoundError("Optimize looks like it failed. Could not find {ef_path}.")
