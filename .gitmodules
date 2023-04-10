@@ -4,3 +4,12 @@
 [submodule "contarg/resources/Targeted-Functional-Network-Stimulation"]
 	path = contarg/resources/Targeted-Functional-Network-Stimulation
 	url = https://github.com/Shotgunosine/Targeted-Functional-Network-Stimulation
+[submodule "contarg/resources/compare_matrices_to_assign_networks"]
+	path = contarg/resources/compare_matrices_to_assign_networks
+	url = https://github.com/Shotgunosine/compare_matrices_to_assign_networks
+[submodule "contarg/resources/cifti-matlab"]
+	path = contarg/resources/cifti-matlab
+	url = https://github.com/Washington-University/cifti-matlab
+[submodule "contarg/resources/matlab_GIfTI"]
+	path = contarg/resources/matlab_GIfTI
+	url = https://github.com/nno/matlab_GIfTI
