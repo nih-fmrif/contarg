@@ -1,5 +1,6 @@
 from collections import namedtuple
 from pathlib import Path
+import warnings
 import pandas as pd
 import numpy as np
 import nilearn as nl
@@ -11,7 +12,7 @@ from scipy.spatial import distance
 from niworkflows.interfaces.fixes import (
     FixHeaderApplyTransforms as ApplyTransforms,
 )
-from .utils import select_confounds, idxs_to_flat, idxs_to_zoomed, idxs_to_mask, parse_bidsname, update_bidspath
+from .utils import select_confounds, idxs_to_flat, idxs_to_zoomed, idxs_to_mask, parse_bidsname, update_bidspath, find_bids_files
 
 Cluster = namedtuple("Cluster", "id idxs nvox concentration repts medts")
 
@@ -84,7 +85,9 @@ def clust_within_region(
     else:
         agg = clustering(**clustering_kwargs)
     # use 1 - spr here to convert the correlation matrix to a distance matrix
+    spr = np.nan_to_num(spr, posinf=1, neginf=-1)
     vox_clust_labels = agg.fit_predict(1 - spr)
+
     cluster_ids, cluster_counts = np.unique(vox_clust_labels, return_counts=True)
     vcl_img = nl.masking.unmask(vox_clust_labels + 1, sub_mask)
 
@@ -175,6 +178,11 @@ def rank_clusters(
     targouts_mp, nvox_weight, concentration_weight, net_reference_correlation_weight
 ):
     targouts_sel = targouts_mp.query("nvox > 50 & net_reference_correlation < 0").copy()
+    if len(targouts_sel) == 0:
+        warnings.warn("No clusters survived 50 voxel threshold, removing minimum voxel size limit.")
+        targouts_sel = targouts_mp.query("net_reference_correlation < 0").copy()
+        if len(targouts_sel) == 0:
+            raise ValueError("No clusters have a negative net_reference_correlation.")
     targouts_sel["flatmask"] = targouts_sel.apply(
         lambda row: idxs_to_flat(row.idxs, row.clnstim_mask), axis=1
     )
@@ -217,11 +225,13 @@ def custom_metric(*args, **kwargs):
     if len(args) == 1:
         A = args[0]
         spr, p = stats.spearmanr(A.T)
+        spr = np.nan_to_num(spr, posinf=1, neginf=-1)
         return 1 - np.abs(spr)
     elif len(args) == 2:
         A = args[0]
         B = args[1]
         spr, p = stats.spearmanr(A, B)
+        spr = np.nan_to_num(spr, posinf=1, neginf=-1)
         return 1 - np.abs(spr)
     else:
         foo = args
@@ -375,8 +385,22 @@ def prep_tedana_for_hierarchical(
             fmriprep_dir,
             t1w_to_MNI152NLin6Asym_ents,
             exclude=["desc", "ses", "task", "acq", "run"],
-            exists=True,
         )
+        if not t1w_to_MNI152NLin6Asym_path.exists():
+            try:
+                t1w_to_MNI152NLin6Asym_path = \
+                find_bids_files(fmriprep_dir, **parse_bidsname(t1w_to_MNI152NLin6Asym_path))[0]
+            except IndexError:
+                t1w_to_MNI152NLin6Asym_path = update_bidspath(
+                    boldtd_path_for_building,
+                    fmriprep_dir,
+                    t1w_to_MNI152NLin6Asym_ents,
+                    exclude=["desc", "task", "acq", "run"],
+                )
+                t1w_to_MNI152NLin6Asym_path = \
+                find_bids_files(fmriprep_dir, **parse_bidsname(t1w_to_MNI152NLin6Asym_path))[0]
+            if not t1w_to_MNI152NLin6Asym_path.exists():
+                raise FileNotFoundError(t1w_to_MNI152NLin6Asym_path.as_posix())
 
     if boldref_t1_path is None:
         boldref_t1_ents = dict(suffix="boldref", space="T1w")
@@ -432,8 +456,7 @@ def prep_tedana_for_hierarchical(
         cfds = cfds.loc[n_dummy:, :].copy()
     cfds.to_csv(trunc_confounds_path, index=None, sep="\t")
 
-
-    # transform cleaned from native space to T1w space
+    # transform from native space to T1w space
     at = ApplyTransforms(interpolation="LanczosWindowedSinc", float=True)
     at.inputs.num_threads = nthreads
     at.inputs.input_image = boldtd_path
@@ -443,7 +466,7 @@ def prep_tedana_for_hierarchical(
     at.inputs.transforms = [scanner_to_t1w_path]
     _ = at.run()
 
-    # transform cleaned from native space to MNI152NLin6Asym space
+    # transform from native space to MNI152NLin6Asym space
     at = ApplyTransforms(interpolation="LanczosWindowedSinc", float=True)
     at.inputs.num_threads = nthreads
     at.inputs.input_image = boldtd_path

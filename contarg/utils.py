@@ -16,7 +16,9 @@ from scipy.ndimage import (
     label,
     generate_binary_structure,
 )
+from scipy import stats
 from pkg_resources import resource_filename
+import templateflow
 
 
 # code for transforming things to subject space
@@ -154,8 +156,9 @@ def clean_mask(
     return cleaned_mask
 
 
-def select_confounds(cfds_path, cfds_sel):
-    cfd = pd.read_csv(cfds_path, sep="\t")
+def select_confounds(cfds, cfds_sel):
+    if not isinstance(cfds, pd.DataFrame):
+        cfd = pd.read_csv(cfds, sep="\t")
     cols = []
     # cfd = cfd.drop('censored', axis=1)
     if "-censor" in cfds_sel:
@@ -182,6 +185,123 @@ def select_confounds(cfds_path, cfds_sel):
         cols.extend([cc for cc in cfd.columns if "non_steady_state_outlier" in cc])
     cfds = cfd.loc[:, cols].copy()
     return cfds
+
+
+def add_censor_columns(confound_path, boldmask_path, bold_path,
+                       max_outfrac=None, max_fd=None, frames_before=0, frames_after=0,
+                       minimum_segment_length=None, minimum_total_length=None, n_dummy=0):
+    """
+    Add censor columns to a confounds dataframe and return the dataframe.
+    !NOTE! will remove any columns containing "censor_".
+
+    Parameters
+    ==========
+
+    confound_path : str or Path
+        Path to fMRIPrep confounds tsv.
+    boldmask_path : str or Path
+        Path to mask for bold image.
+    bold_path : str or Path
+        Path to bold timeseries.
+    max_outfrac : float or None, default None
+        Maximum allowed fraction of outlier voxels in a frame.
+    max_fd : float or None, default None
+        Maximum allowed framewise displacement.
+    frames_before : int, default 0
+        How many frames to exclude prior to a frame excluded because of framewise displacement.
+    frames_after : int, default 0
+        How many frames to exclude after a frame excluded because of framewise displacement.
+    minimum_segment_length : int or None, default None
+        Minimum number of consecutive non-censored frames allowed.
+    n_dummy : int, default 0
+        Number of dummy frames to censor at the begining of the time series.
+    minimum_total_length  : int or None, default None
+        Minimum number of uncesored frames. Raises a value error if fewer frames survive censoring.
+
+    Returns
+    =======
+    cfds : Dataframe
+        Pandas dataframe with censor columns added.
+    """
+
+    cfds = pd.read_csv(confound_path, sep='\t')
+    cfds['censored'] = False
+
+    if max_outfrac is not None:
+        cfds['outfrac'] = toutcount(bold_path, confound_path, boldmask_path)
+        cfds['censored'] |= cfds.outfrac > max_outfrac
+
+    if max_fd is not None:
+        shifted_before = [cfds.framewise_displacement.shift(-1 * (ff + 1)) for ff in range(frames_before)]
+        shifted_after = [cfds.framewise_displacement.shift((ff + 1)) for ff in range(frames_after)]
+        shifted = pd.DataFrame(shifted_before + [cfds.framewise_displacement] + shifted_after).T
+        cfds['max_fd_with_offsets'] = shifted.max(1)
+        cfds['censored'] |= cfds.max_fd_with_offsets > max_fd
+
+    if minimum_segment_length is not None:
+        segs = np.diff(np.pad((~cfds['censored']).astype(int), 1, 'constant'))
+        seg_srt = np.where(segs == 1)[0]
+        seg_end = np.where(segs == -1)[0] - 1
+        cfds['segment_length'] = 0
+        for srt, end in zip(seg_srt, seg_end):
+            cfds.loc[srt:end, 'segment_length'] = end - srt + 1
+
+        cfds['censored'] |= cfds.segment_length < minimum_segment_length
+
+    cfds.censored = cfds.censored.astype(int)
+
+    # censor dummy scans
+    cfds.loc[:n_dummy - 1, 'censored'] = 1
+
+    if (minimum_total_length is not None) and ((len(cfds) - cfds.censored.sum()) < minimum_total_length):
+        raise ValueError(
+            f'Only {(len(cfds) - cfds.censored.sum())} frames remain after censoring. This is fewer than the {minimum_total_length} frame minimum specified.')
+
+    # drop previous censor columns
+    cfds = cfds.loc[:, ~cfds.columns.str.contains('censor_')]
+    # make censor columns
+    c_cols = np.zeros((len(cfds.censored), len(cfds.censored))).astype(int)
+    c_cols[np.diag_indices(len(cfds.censored))] = cfds.censored.values.astype(int)
+    c_cols_names = [f'censor_{nn:03d}' for nn in range(cfds.censored.sum())]
+    c_cols = pd.DataFrame(c_cols[:, cfds.censored.astype(bool)],
+                          columns=c_cols_names)
+    cfds = pd.concat([cfds, c_cols], axis=1)
+    cfds = cfds.fillna(0)
+
+    return cfds
+
+
+def toutcount(bold_path, confound_path, boldmask_path):
+    """
+    Based on AFNI's 3dToutCount. Returns the fraction of voxels inside the mask that are outliers at each TR.
+    Parameters
+    ==========
+    bold_path : str or path
+        Path to bold timeseries
+    confound_path : str or path
+        Path to confound timeseries
+    boldmask_path : str or path
+        Path to boldmask
+
+    Returns
+    =======
+    outfrac : array of floats
+        Fraction of voxels inside the mask that are outliers at each TR
+    """
+    cfds = pd.read_csv(confound_path, sep='\t')
+    detrend_cfds = select_confounds(confound_path, ['-cosine', '-dummy'])
+    detrended_img = nl.image.clean_img(bold_path, standardize=False, detrend=False, confounds=detrend_cfds)
+    detrended_dat = nl.masking.apply_mask(detrended_img, boldmask_path)
+
+    medians = np.median(detrended_dat, axis=0)
+    deviations = np.abs(detrended_dat - medians)
+    mad = np.median(deviations, axis=0)
+    n = len(detrended_dat)
+    alpha = stats.norm().ppf(1 - (0.001 / n))
+    thresh = alpha * np.sqrt(np.pi / 2) * mad
+    res = (deviations >= thresh).sum(axis=1)
+
+    return res / mad.shape[0]
 
 
 def idxs_to_mask(idxs, mask_path):
@@ -322,6 +442,8 @@ def make_fmriprep_t2(fmriprep_dir, subject, out_dir):
         subject = f"sub-{subject}"
     fs_subjects_dir = fmriprep_dir / "sourcedata/freesurfer"
     fst2 = fs_subjects_dir / f"{subject}/mri/T2.mgz"
+    if not fst2.exists():
+        raise FileNotFoundError(fst2.as_posix())
     fsnative_to_t1 = (
         fmriprep_dir
         / f"{subject}/anat/{subject}_from-fsnative_to-T1w_mode-image_xfm.txt"
@@ -390,6 +512,7 @@ BIDS_ORDER = [
     "space",
     "den",
     "res",
+    "atlas",
     "label",
     "from",
     "to",
@@ -476,6 +599,20 @@ def find_bids_files(search_root, exclude=None, order=None, debug=False, try_rund
         else:
             glob_string += f"*{k}_"
     glob_string += f"*{ending}"
+    if '*' in search_dir.as_posix():
+        new_search_dir = Path(search_dir.parts[0])
+        wc_found = False
+        glob_prefix=''
+        for pp in search_dir.parts[1:]:
+            if not wc_found and '*' not in pp:
+                new_search_dir /= pp
+            else:
+                wc_found = True
+                glob_prefix += pp + '/'
+        search_dir = new_search_dir
+        glob_string = glob_prefix + glob_string
+
+
     if debug:
         print(search_dir, glob_string, flush=True)
     res = sorted(search_dir.glob(glob_string))
@@ -629,10 +766,10 @@ def update_bidspath(
     return new_path
 
 
-STIMROIS = ["dilatedDLPFCspheres", "DLPFCspheres", "BA46sphere", "coleBA46"]
+STIMROIS = ["dilatedDLPFCspheres", "DLPFCspheres", "BA46sphere", "coleBA46", "expandedcoleBA46", "chexpandedcoleBA46"]
 
 
-def get_stimroi_path(stimroi_name, stimroi_path=None, cifti=False):
+def get_stimroi_path(stimroi_name, stimroi_path=None, cifti=False, masked=False):
     """
     Return the path to the ROI file for the region stimulation is to be delivered to.
 
@@ -644,6 +781,8 @@ def get_stimroi_path(stimroi_name, stimroi_path=None, cifti=False):
         The path of the custom stimulated region ROI file. Only needed if name is not recognized
     cifti : bool, optional
         If True, return a cifti file instead of a nifti file. Default is False.
+    masked : bool, optional
+        If True, return an roi masked by the MNI152NLin6Asym brain mask. Masked and cifti can't both be true.
 
     Returns
     -------
@@ -654,6 +793,7 @@ def get_stimroi_path(stimroi_name, stimroi_path=None, cifti=False):
     ------
     ValueError
         If a custom stimulated region ROI name is provided but no path to that ROI file is provided.
+        If cifti and masked are both True.
     FileNotFoundError
         If the stimulated region ROI file does not exist.
     """
@@ -661,7 +801,13 @@ def get_stimroi_path(stimroi_name, stimroi_path=None, cifti=False):
     roi_dir = Path(resource_filename("contarg", "data/rois"))
 
     if stimroi_name in STIMROIS:
-        if cifti:
+        if cifti and masked:
+            raise ValueError("cifti and masked can't both be True.")
+        elif masked:
+            stim_roi_2mm_path = (
+                roi_dir / f"{stimroi_name + 'masked'}_space-MNI152NLin6Asym_res-02.nii.gz"
+            )
+        elif cifti:
             stim_roi_2mm_path = (
                 roi_dir / f"{stimroi_name}_space-fsLR_den-91k.dtseries.nii"
             )
@@ -674,6 +820,8 @@ def get_stimroi_path(stimroi_name, stimroi_path=None, cifti=False):
             f"Custom roi name passed for stimroi, {stimroi_name}, but no path to that roi was provided."
         )
     else:
+        if cifti or masked:
+            raise NotImplementedError("Getting masked or cifti versions of custom rois is not yet supported.")
         stim_roi_2mm_path = stimroi_path
 
     if not stim_roi_2mm_path.exists():
@@ -735,3 +883,50 @@ def get_refroi_path(refroi_name, refroi_path=None, cifti=False):
     if not ref_roi_2mm_path.exists():
         raise FileNotFoundError(ref_roi_2mm_path.as_posix())
     return ref_roi_2mm_path
+
+
+def t1w_mask_to_mni(mask_path, fmriprep_dir, out_dir, t1w_to_MNI152NLin6Asym_path=None,
+                    nthreads=1):
+    mask_path = Path(mask_path)
+    fmriprep_dir = Path(fmriprep_dir)
+    out_dir = Path(out_dir)
+
+    if t1w_to_MNI152NLin6Asym_path is None:
+        t1w_to_MNI152NLin6Asym_ents = {
+            "suffix": "xfm",
+            "extension": "h5",
+            "from": "T1w",
+            "to": "MNI152NLin6Asym",
+            "mode": "image",
+            "type": "anat",
+        }
+        t1w_to_MNI152NLin6Asym_path = update_bidspath(
+            mask_path,
+            fmriprep_dir,
+            t1w_to_MNI152NLin6Asym_ents,
+            exclude=["desc", "ses", "task", "acq", "run", "atlas", "space"],
+            exists=True,
+        )
+    ref = templateflow.api.get('MNI152NLin6Asym', resolution=2, suffix='T1w')[-1]
+
+    mnimask_ents = dict(
+        space="MNI152NLin6Asym",
+        res="2"
+    )
+    mnimask_path = update_bidspath(
+        mask_path,
+        out_dir,
+        mnimask_ents
+    )
+    mnimask_path.parent.mkdir(exist_ok=True, parents=True)
+
+    at = ApplyTransforms(interpolation="NearestNeighbor", float=True)
+    at.inputs.num_threads = nthreads
+    at.inputs.input_image = mask_path
+    at.inputs.output_image = mnimask_path.as_posix()
+    at.inputs.reference_image = ref
+    at.inputs.input_image_type = 0
+    at.inputs.transforms = [t1w_to_MNI152NLin6Asym_path]
+    _ = at.run()
+
+    return mnimask_path

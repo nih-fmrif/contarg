@@ -13,7 +13,8 @@ from contarg.utils import (
     get_refroi_path,
     update_bidspath,
     parse_bidsname,
-    select_confounds
+    select_confounds,
+    add_censor_columns
 )
 from contarg.hierarchical import (
     find_target,
@@ -168,6 +169,49 @@ def hierarchical():
     help="Weight given to net reference correlation when selecting a target cluster",
 )
 @click.option(
+    "--max-outfrac",
+    type=float,
+    default=None,
+    show_default=True,
+    help="Maximum allowed fraction of outlier voxels in a frame",
+)
+@click.option(
+    "--max-fd",
+    type=float,
+    default=None,
+    show_default=True,
+    help="Maximum allowed framewise displacement.",
+)
+@click.option(
+    "--frames-before",
+    type=int,
+    default=0,
+    show_default=True,
+    help="How many frames to exclude prior to a frame excluded because of framewise displacement.",
+)
+@click.option(
+    "--frames-after",
+    type=int,
+    default=0,
+    show_default=True,
+    help="How many frames to exclude after a frame excluded because of framewise displacement.",
+)
+@click.option(
+    "--minimum-segment-length",
+    type=int,
+    default=None,
+    show_default=True,
+    help="Minimum number of consecutive non-censored frames allowed.",
+)
+@click.option(
+    "--minimum-total-length",
+    type=int,
+    default=None,
+    show_default=True,
+    help="Minimum number of consecutive non-censored frames allowed. "
+         "Note this is an integer number of frames, not minutes.",
+)
+@click.option(
     "--subject",
     type=str,
     default=None,
@@ -183,7 +227,7 @@ def hierarchical():
     "--run", type=str, default=None, help="Run from dataset to generate target(s) for."
 )
 @click.option(
-    "--acquisition", type=str, default=None, help="Aquisition from dataset to generate target(s) for."
+    "--acquisition", type=str, default=None, help="Acquisition from dataset to generate target(s) for."
 )
 @click.option(
     "--echo",
@@ -202,6 +246,11 @@ def hierarchical():
     "--overwrite",
     is_flag=True,
     help="Overwrite existing outputs",
+)
+@click.option(
+    "--debug",
+    is_flag=True,
+    help="Don't use joblib to facilitate debugging",
 )
 def run(
     bids_dir,
@@ -225,13 +274,20 @@ def run(
     nvox_weight,
     concentration_weight,
     net_reference_correlation_weight,
+    max_outfrac,
+    max_fd,
+    frames_before,
+    frames_after,
+    minimum_segment_length,
+    minimum_total_length,
     subject,
     session,
     run,
     acquisition,
     echo,
     njobs,
-    overwrite
+    overwrite,
+    debug
 ):
     bids_dir = Path(bids_dir)
     derivatives_dir = Path(derivatives_dir)
@@ -331,18 +387,35 @@ def run(
         cleaned_bold_path = update_bidspath(bold_path, targeting_dir, cleaned_bold_ents)
         cleaned_bold_path.parent.mkdir(exist_ok=True, parents=True)
 
+        updated_confounds_ents = {}
+        updated_confounds_path = update_bidspath(
+            confound_path, targeting_dir, updated_confounds_ents
+        )
+        used_confounds_ents = {'desc':'usedconfounds'}
+        used_confounds_path = update_bidspath(
+            confound_path, targeting_dir, used_confounds_ents
+        )
+
         if not overwrite and cleaned_bold_path.exists():
             pass
         else:
-            if tedana:
-                confound_selectors = ["-gs", "-motion", "-dummy", "-cosine"]
-            else:
-                confound_selectors = ["-gs", "-motion", "-cosine"]
 
-            cfds = select_confounds(confound_path, confound_selectors)
+            # deal with confounds
+            if tedana:
+                confound_selectors = ["-gs", "-motion", "-cosine", "-censor"]
+            else:
+                confound_selectors = ["-gs", "-motion", "-dummy", "-cosine", "-censor"]
+
+            cfds = add_censor_columns(confound_path, boldmask_path, bold_path, max_outfrac, max_fd,
+                                      frames_before, frames_after, minimum_segment_length, minimum_total_length, n_dummy)
+            cfds.to_csv(updated_confounds_path, index=None, sep='\t')
+            cfds = select_confounds(cfds, confound_selectors)
+            cfds.to_csv(used_confounds_path, index=None, sep='\t')
+
             # clean bold
             cleaned = nl.image.clean_img(
                 nl.image.load_img(bold_path).slicer[:, :, :, n_dummy:],
+                detrend=False,
                 confounds=cfds,
                 high_pass=0.01,
                 low_pass=0.1,
@@ -365,13 +438,14 @@ def run(
             clean_concat_img = nl.image.concat_imgs(frames, ensure_ndim=4)
             clean_concat_img.to_filename(clean_concat_path)
         bolds.append(clean_concat_path)
+    else:
+        bolds = clean_bolds
     # get a run number to use for things like the bold ref
     dummy_run_number = parse_bidsname(clean_bolds[0])['run']
     rest_paths = pd.DataFrame([layout.parse_file_entities(bb) for bb in bolds])
     rest_paths["entities"] = [layout.parse_file_entities(bb) for bb in bolds]
     rest_paths["bold_path"] = bolds
-    if concat:
-        rest_paths["confounds"] = None
+    rest_paths["confounds"] = None
     if "session" not in rest_paths.columns:
         rest_paths["session"] = None
     # add boldref
@@ -426,9 +500,12 @@ def run(
     assert rest_paths.mnitoT1w.apply(lambda x: len(x) == 1).all()
     rest_paths["mnitoT1w"] = rest_paths.mnitoT1w.apply(lambda x: x[0])
 
+    # define a pattern for building paths
+    boldmask_pattern = "sub-{subject}/[ses-{session}/]func/sub-{subject}_[ses-{session}_]task-{task}_[run-{run}_][echo-{echo}_]atlas-{atlas}_space-{space}_desc-{desc}_{suffix}.{extension}"
+
     if space == "T1w":
         # set up paths to transform stim and target rois back to subject space
-        boldmask_pattern = "sub-{subject}/[ses-{session}/]func/sub-{subject}_[ses-{session}_]task-{task}_[run-{run}_][echo-{echo}_]atlas-{atlas}_space-{space}_desc-{desc}_{suffix}.{extension}"
+
         stimmask_updates = {
             "desc": stimroi_name,
             "suffix": "mask",
@@ -472,7 +549,6 @@ def run(
         rest_paths["ref_mask_exists"] = rest_paths.ref_mask.apply(lambda x: x.exists())
 
         # set up paths for masks with small connected components dropped
-        boldmask_pattern = "sub-{subject}/[ses-{session}/]func/sub-{subject}_[ses-{session}_]task-{task}_[run-{run}_][echo-{echo}_]atlas-{atlas}_space-{space}_desc-{desc}_{suffix}.{extension}"
         clnstimmask_updates = {
             "desc": stimroi_name + "Clean",
             "suffix": "mask",
@@ -519,16 +595,14 @@ def run(
 
     else:
         # TODO: clean this up for custom ROIs
-        clnref_roi_2mm_path = (
-                roi_dir / f"{refroi_name + 'masked'}_space-MNI152NLin6Asym_res-02.nii.gz"
-        )
+        clnstm_roi_2mm_path = get_stimroi_path(stimroi_name, stimroi_path=stimroi_path, masked=True)
         rest_paths[f"stim_mask"] = stim_roi_2mm_path
         rest_paths["stim_mask_exists"] = True
         rest_paths["ref_mask"] = ref_roi_2mm_path
         rest_paths["ref_mask_exists"] = True
-        rest_paths[f"clnstim_mask"] = stim_roi_2mm_path
+        rest_paths[f"clnstim_mask"] = clnstm_roi_2mm_path
         rest_paths["clnstim_mask_exists"] = True
-        rest_paths["clnref_mask"] = clnref_roi_2mm_path
+        rest_paths["clnref_mask"] = ref_roi_2mm_path
         rest_paths["clnref_mask_exists"] = True
 
     if adjacency:
@@ -703,28 +777,50 @@ def run(
     if not rest_paths.clnref_mask_exists.all():
         raise ValueError("Could not create a clean mask")
 
-    # now that we've got all the paths set, lets start finding targets
-    jobs = []
-    for ix, row in rest_paths.iterrows():
-        jobs.append(
-            delayed(find_target)(
-                row,
-                "bold_path",
-                f"{desc}_targout",
-                n_dummy=n_dummy,
-                t_r=t_r,
-                distance_threshold=distance_threshold,
-                adjacency=adjacency,
-                smoothing_fwhm=smoothing_fwhm,
-                confound_selectors=None,
-                metric=custom_metric,
-                linkage=linkage,
-                write_pkl=True,
-                return_df=True,
+    if debug:
+        # now that we've got all the paths set, lets start finding targets
+        r = []
+        for ix, row in rest_paths.iterrows():
+            r.append(find_target(
+                    row,
+                    "bold_path",
+                    f"{desc}_targout",
+                    n_dummy=n_dummy,
+                    t_r=t_r,
+                    distance_threshold=distance_threshold,
+                    adjacency=adjacency,
+                    smoothing_fwhm=smoothing_fwhm,
+                    confound_selectors=None,
+                    metric=custom_metric,
+                    linkage=linkage,
+                    write_pkl=True,
+                    return_df=True,
+                )
             )
-        )
-    r = Parallel(n_jobs=njobs, verbose=10)(jobs)
-    targouts = pd.concat(r)
+        targouts = pd.concat(r)
+    else:
+        # now that we've got all the paths set, lets start finding targets
+        jobs = []
+        for ix, row in rest_paths.iterrows():
+            jobs.append(
+                delayed(find_target)(
+                    row,
+                    "bold_path",
+                    f"{desc}_targout",
+                    n_dummy=n_dummy,
+                    t_r=t_r,
+                    distance_threshold=distance_threshold,
+                    adjacency=adjacency,
+                    smoothing_fwhm=smoothing_fwhm,
+                    confound_selectors=None,
+                    metric=custom_metric,
+                    linkage=linkage,
+                    write_pkl=True,
+                    return_df=True,
+                )
+            )
+        r = Parallel(n_jobs=njobs, verbose=10)(jobs)
+        targouts = pd.concat(r)
 
     # merge some paths in to the targets dataframe
     rp_cols = [
