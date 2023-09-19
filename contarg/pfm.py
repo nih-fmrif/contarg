@@ -17,22 +17,38 @@ from contarg.utils import (
     build_bidsname,
     make_rel_symlink,
     update_bidspath,
-    find_bids_files
+    find_bids_files,
+    add_censor_columns,
+    select_confounds
 )
 
 
 def pfm_inputs_from_fmriprep(
     subject,
     subjects_dir,
+    fmriprep_dir,
     out_dir,
     bold_path,
     t_r,
     n_dummy,
-    confounds=None,
+    regress_gm=True,
+    regress_globalsignal=True,
+    max_outfrac=None,
+    max_fd=None,
+    frames_before=0,
+    frames_after=0,
+    minimum_segment_length=None,
+    minimum_total_length=None,
     aroma=False,
     overwrite=False,
+    gmseg_path=None,
+    mni_gmseg_path=None,
+    boldmask_path=None,
+    mni_boldmask_path=None,
+    boldref_t1_path=None,
+    t1w_to_fsnative_path=None
 ):
-    bold_path = Path(bold_path)
+    path = Path(bold_path)
 
     # make standard space path
     mni_bold_path = bold_path.parent / bold_path.parts[-1].replace(
@@ -50,6 +66,128 @@ def pfm_inputs_from_fmriprep(
     bold_parts["extension"] = "tsv"
     confounds_path = bold_path.parent / build_bidsname(bold_parts)
 
+    if t1w_to_fsnative_path is None:
+        t1w_to_fsnative_ents = {
+            "suffix": "xfm",
+            "extension": "txt",
+            "from": "T1w",
+            "to": "fsnative",
+            "mode": "image",
+            "type": "anat",
+        }
+        t1w_to_fsnative_path = update_bidspath(
+            bold_path,
+            fmriprep_dir,
+            t1w_to_fsnative_ents,
+            exclude=["desc", "ses", "task", "acq", "run", "space"],
+        )
+        if not t1w_to_fsnative_path.exists():
+            try:
+                t1w_to_fsnative_path = find_bids_files(fmriprep_dir, **parse_bidsname(t1w_to_fsnative_path))[0]
+            except IndexError:
+                t1w_to_fsnative_path = update_bidspath(
+                    bold_path,
+                    fmriprep_dir,
+                    t1w_to_fsnative_ents,
+                    exclude=["desc", "task", "acq", "run", "space"],
+                )
+                t1w_to_fsnative_path = find_bids_files(fmriprep_dir, **parse_bidsname(t1w_to_fsnative_path))[0]
+            if not t1w_to_fsnative_path.exists():
+                raise FileNotFoundError(t1w_to_fsnative_path.as_posix())
+
+    if gmseg_path is None:
+        gmseg_ents = dict(
+            label="GM", suffix="probseg", type="anat", extension=".nii.gz"
+        )
+        gmseg_path = update_bidspath(
+            bold_path,
+            fmriprep_dir,
+            gmseg_ents,
+            exclude=["ses", "task", "acq", "run", "desc", "space"],
+        )
+        if not gmseg_path.exists():
+            try:
+                gmseg_path = find_bids_files(fmriprep_dir, **parse_bidsname(gmseg_path))[0]
+            except IndexError:
+                gmseg_path = update_bidspath(
+                    bold_path,
+                    fmriprep_dir,
+                    gmseg_ents,
+                    exclude=["task", "acq", "run", "desc", "space"],
+                )
+                gmseg_path = find_bids_files(fmriprep_dir, **parse_bidsname(gmseg_path))[0]
+            if not gmseg_path.exists():
+                raise FileNotFoundError(gmseg_path.as_posix())
+
+    if mni_gmseg_path is None:
+        mni_gmseg_ents = dict(
+            label="GM", suffix="probseg", type="anat", extension=".nii.gz", space="MNI152NLin6Asym"
+        )
+        mni_gmseg_path = update_bidspath(
+            bold_path,
+            fmriprep_dir,
+            mni_gmseg_ents,
+            exclude=["ses", "task", "acq", "run", "desc"],
+        )
+        if not mni_gmseg_path.exists():
+            try:
+                mni_gmseg_path = find_bids_files(fmriprep_dir, **parse_bidsname(mni_gmseg_path))[0]
+            except IndexError:
+                mni_gmseg_path = update_bidspath(
+                    bold_path,
+                    fmriprep_dir,
+                    mni_gmseg_ents,
+                    exclude=["task", "acq", "run", "desc"],
+                )
+                mni_gmseg_path = find_bids_files(fmriprep_dir, **parse_bidsname(mni_gmseg_path))[0]
+            if not mni_gmseg_path.exists():
+                raise FileNotFoundError(mni_gmseg_path.as_posix())
+
+    if boldmask_path is None:
+        boldmask_ents = dict(
+            desc="brain",
+            suffix="mask",
+        )
+        boldmask_path = update_bidspath(
+            bold_path, fmriprep_dir, boldmask_ents, exists=True
+        )
+    if mni_boldmask_path is None:
+        mni_boldmask_ents = dict(
+            desc="brain",
+            suffix="mask",
+        )
+        mni_boldmask_path = update_bidspath(
+            mni_bold_path, fmriprep_dir, mni_boldmask_ents, exists=True
+        )
+
+    if boldref_t1_path is None:
+        boldref_t1_ents = dict(suffix="boldref", space="T1w")
+        boldref_t1_path = update_bidspath(
+            bold_path, fmriprep_dir, boldref_t1_ents, exclude=["desc"], exists=True
+        )
+
+    updated_confounds_ents = {}
+    updated_confounds_path = update_bidspath(
+        confounds_path, out_dir, updated_confounds_ents
+    )
+    used_confounds_ents = {'desc': 'usedconfounds'}
+    used_confounds_path = update_bidspath(
+        confounds_path, out_dir, used_confounds_ents
+    )
+
+    mni_updated_confounds_ents = {'space': 'MNI152NLin6Asym', 'res': 2}
+    mni_updated_confounds_path = update_bidspath(
+        confounds_path, out_dir, mni_updated_confounds_ents
+    )
+    mni_used_confounds_ents = {'space': 'MNI152NLin6Asym', 'res': 2, 'desc': 'usedconfounds'}
+    mni_used_confounds_path = update_bidspath(
+        confounds_path, out_dir, mni_used_confounds_ents
+    )
+
+    # todo fix this ugly hack
+    out_dir = updated_confounds_path.parent
+    out_dir.mkdir(exist_ok=True, parents=True)
+
     bold_parts["desc"] = "MCF"
     bold_parts["suffix"] = "timeseries"
     bold_parts["extension"] = "par"
@@ -57,18 +195,49 @@ def pfm_inputs_from_fmriprep(
 
     mcf_from_fmriprep_confounds(confounds_path, mcf_path, n_dummy=n_dummy)
 
-    # make path to t1w2fsnative_xfm
-    t1w2fsnative_xfm = (
-        bold_path.parent.parent
-        / f"anat/sub-{subject}_from-T1w_to-fsnative_mode-image_xfm.txt"
-    )
-    if not t1w2fsnative_xfm.exists():
-        t1w2fsnative_xfm = (
-            bold_path.parent.parent.parent
-            / f"anat/sub-{subject}_from-T1w_to-fsnative_mode-image_xfm.txt"
-        )
-    if not t1w2fsnative_xfm.exists():
-        raise ValueError("Couldn't find the t1w to fsnative transformation.")
+    # get mean gm timeseries on T1
+    gmseg = nl.image.load_img(gmseg_path)
+    t1w_gmseg = nl.image.resample_to_img(gmseg, boldref_t1_path, interpolation="nearest")
+    bold = nl.image.load_img(bold_path)
+    t1w_gmseg_dat = np.expand_dims(t1w_gmseg.get_fdata(), -1)
+    t1w_gm_data = bold.get_fdata() * t1w_gmseg_dat
+    t1w_gm_timeseries = t1w_gm_data[(t1w_gmseg_dat != 0).squeeze()].mean(0)
+
+    # get mean gm timeseries on mni
+    mni_gmseg = nl.image.load_img(mni_gmseg_path)
+    mni_bold = nl.image.load_img(mni_bold_path)
+    mni_gmseg_dat = np.expand_dims(mni_gmseg.get_fdata(), -1)
+    mni_gm_data = mni_bold.get_fdata() * mni_gmseg_dat
+    mni_gm_timeseries = mni_gm_data[(mni_gmseg_dat != 0).squeeze()].mean(0)
+
+    # process confounds in T1w space
+    cfds = add_censor_columns(confounds_path, boldmask_path, bold_path, max_outfrac=max_outfrac, max_fd=max_fd,
+                              frames_before=frames_before, frames_after=frames_after,
+                              minimum_segment_length=minimum_segment_length, minimum_total_length=minimum_total_length,
+                              n_dummy=n_dummy)
+    cfds["gm"] = t1w_gm_timeseries
+    cfds.to_csv(updated_confounds_path, index=None, sep='\t')
+    confound_selectors = ["-motion", "-cosine", "-censor", "-dummy"]
+    if regress_globalsignal:
+        confound_selectors.append('-gs')
+    if aroma:
+        confound_selectors.append("-aroma")
+    if regress_gm:
+        confound_selectors.append("-gm")
+    cfds_to_use = select_confounds(cfds, confound_selectors)
+    cfds_to_use.to_csv(used_confounds_path, index=None, sep='\t')
+
+    # process confounds in mni space
+    mni_cfds = add_censor_columns(confounds_path, mni_boldmask_path, mni_bold_path, max_outfrac=max_outfrac,
+                                  max_fd=max_fd,
+                                  frames_before=frames_before, frames_after=frames_after,
+                                  minimum_segment_length=minimum_segment_length,
+                                  minimum_total_length=minimum_total_length,
+                                  n_dummy=n_dummy)
+    mni_cfds["gm"] = mni_gm_timeseries
+    mni_cfds.to_csv(mni_updated_confounds_path, index=None, sep='\t')
+    mni_cfds_to_use = select_confounds(mni_cfds, confound_selectors)
+    mni_cfds_to_use.to_csv(mni_used_confounds_path, index=None, sep='\t')
 
     # create cleaned bold series in T1w and MNI space, both are needed to make fsLR cifti
     clean_t1_path = clean_bold(
@@ -76,7 +245,7 @@ def pfm_inputs_from_fmriprep(
         out_dir,
         n_dummy,
         t_r,
-        confounds=confounds,
+        cfds_to_use=cfds_to_use,
         aroma=aroma,
         overwrite=overwrite,
     )
@@ -85,18 +254,19 @@ def pfm_inputs_from_fmriprep(
         out_dir,
         n_dummy,
         t_r,
-        confounds=confounds,
+        cfds_to_use=mni_cfds_to_use,
         aroma=aroma,
         overwrite=overwrite,
     )
 
     # set subjects dir
-    os.environ["SUBJECTS_DIR"] = subjects_dir
+    os.environ["SUBJECTS_DIR"] = subjects_dir.as_posix()
 
     # generate output paths so you can check to see if they exist
     clean_parts = parse_bidsname(clean_t1_path.parts[-1])
     clean_parts["extension"] = "dtseries.nii"
-    clean_parts["space"] = "32k_fs_LR"
+    clean_parts["space"] = "fsLR"
+    clean_parts['den'] = "91k"
     clean_cifti_path = out_dir / build_bidsname(clean_parts)
     clean_parts["extension"] = "dtseries.json"
     clean_json_path = out_dir / build_bidsname(clean_parts)
@@ -109,10 +279,10 @@ def pfm_inputs_from_fmriprep(
         mem_gb=20, surface_spaces=["fsaverage"], medial_surface_nan=False
     )
 
-    bold_surf_wf.inputs.inputnode.source_file = out_dir / clean_t1_path
+    bold_surf_wf.inputs.inputnode.source_file = clean_t1_path
     bold_surf_wf.inputs.inputnode.subject_id = f"sub-{subject}"
     bold_surf_wf.inputs.inputnode.subjects_dir = subjects_dir
-    bold_surf_wf.inputs.inputnode.t1w2fsnative_xfm = t1w2fsnative_xfm.as_posix()
+    bold_surf_wf.inputs.inputnode.t1w2fsnative_xfm = t1w_to_fsnative_path.as_posix()
     if "echo" in bold_parts:
         wf_basedir = (
             out_dir
@@ -179,7 +349,14 @@ def pfm_inputs_from_tedana(
     overwrite=False,
     drop_rundir=True,
     ciftis_out=True,
+    regress_globalsignal=True,
     regress_gm=True,
+    max_outfrac=None,
+    max_fd=None,
+    frames_before=0,
+    frames_after=0,
+    minimum_segment_length=None,
+    minimum_total_length=None,
     # if the following aren't defined, they'll be assumed to be in default locations
     subjects_dir=None,
     scanner_to_t1w_path=None,
@@ -189,6 +366,7 @@ def pfm_inputs_from_tedana(
     gmseg_path=None,
     confounds_path=None,
     boldmask_path=None,
+    tdboldmask_path=None,
     t2starmap_path=None,
     boldref_t1_path=None,
     boldref_MNI152NLin6Asym_path=None,
@@ -202,13 +380,6 @@ def pfm_inputs_from_tedana(
             ents = parse_bidsname(boldtd_path_for_building)
     else:
         ents = parse_bidsname(boldtd_path)
-
-    # find the root of the tedana dir
-    tedana_root = []
-    for pp in boldtd_path.parts[:-1]:
-        if not pp.split("-")[-1] in ents.values():
-            tedana_root.append(pp)
-    tedana_root = Path(*tedana_root)
 
     # set the subjects dir
     if subjects_dir is None:
@@ -290,7 +461,7 @@ def pfm_inputs_from_tedana(
             "mode": "image",
             "type": "anat",
         }
-        t1w_to_MNI152NLin6Asym_path = update_bidspath(
+        t1w_to_MNI152NLin6Asym_path: Path = update_bidspath(
             boldtd_path_for_building,
             fmriprep_dir,
             t1w_to_MNI152NLin6Asym_ents,
@@ -334,6 +505,16 @@ def pfm_inputs_from_tedana(
             if not gmseg_path.exists():
                 raise FileNotFoundError(gmseg_path.as_posix())
 
+
+    # if there is a tedana mask, use that one for calculating censoring, otherwise, use fmreprep
+    if tdboldmask_path is None:
+        tdmask_ents = dict(
+            desc="adaptiveGoodSignal",
+            suffix="mask"
+        )
+        tdboldmask_path = update_bidspath(
+            boldtd_path, tedana_dir, tdmask_ents, keep_rundir=True
+        )
     if boldmask_path is None:
         boldmask_ents = dict(
             desc="brain",
@@ -342,6 +523,9 @@ def pfm_inputs_from_tedana(
         boldmask_path = update_bidspath(
             boldtd_path_for_building, fmriprep_dir, boldmask_ents, exists=True
         )
+
+    if not tdboldmask_path.exists():
+        tdboldmask_path = boldmask_path
 
     if boldref_t1_path is None:
         boldref_t1_ents = dict(suffix="boldref", space="T1w")
@@ -370,7 +554,7 @@ def pfm_inputs_from_tedana(
     if t2starmap_path is None:
         t2starmap_ents = dict(suffix="T2starmap", extension=".nii.gz")
         t2starmap_path = update_bidspath(
-            boldtd_path, tedana_root, t2starmap_ents, exclude="desc", exists=True, keep_rundir=True
+            boldtd_path, tedana_dir, t2starmap_ents, exclude="desc", exists=True, keep_rundir=True
         )
 
 
@@ -409,6 +593,15 @@ def pfm_inputs_from_tedana(
         cleaned_boldtd_path, out_dir, cleaned_boldtdnii_ents
     )
 
+    updated_confounds_ents = {}
+    updated_confounds_path = update_bidspath(
+        confounds_path, out_dir, updated_confounds_ents
+    )
+    used_confounds_ents = {'desc': 'usedconfounds'}
+    used_confounds_path = update_bidspath(
+        confounds_path, out_dir, used_confounds_ents
+    )
+
     if noinputprep:
         return cleaned_boldtdnii_path
 
@@ -437,33 +630,30 @@ def pfm_inputs_from_tedana(
     gm_data = boldtd.get_fdata() * gmseg_dat
     gm_timeseries = gm_data[(gmseg_dat != 0).squeeze()].mean(0)
 
-    # add mean gm to timeseries
-    confounds = [
-        "trans_x",
-        "trans_y",
-        "trans_z",
-        "rot_x",
-        "rot_y",
-        "rot_z",
-        "global_signal",
-    ]
-
-    cfds = pd.read_csv(confounds_path, sep="\t")
-    confound_names = confounds.copy()
-    if aroma:
-        confound_names += [nn for nn in cfds.columns if "aroma" in nn]
-    confound_names += [nn for nn in cfds.columns if "cosine" in nn]
-    cfds_to_use = cfds.loc[n_dummy:, confound_names].copy()
-
+    # process confounds
+    cfds = add_censor_columns(confounds_path, tdboldmask_path, boldtd_path, max_outfrac=max_outfrac, max_fd=max_fd,
+                              frames_before=frames_before, frames_after=frames_after,
+                              minimum_segment_length=minimum_segment_length, minimum_total_length=minimum_total_length,
+                              n_dummy=n_dummy)
+    cfds = cfds.loc[n_dummy:].copy()
     # if boldtd has already had dummy scans dropped, this will produce a ValueError, set n_dummy to 0 going forward
     try:
-        cfds_to_use["gm"] = gm_timeseries[n_dummy:]
+        cfds["gm"] = gm_timeseries[n_dummy:]
     except ValueError:
-        cfds_to_use["gm"] = gm_timeseries
+        cfds["gm"] = gm_timeseries
         n_dummy = 0
 
-    if not regress_gm:
-        cfds_to_use = cfds_to_use.drop('gm', axis=1)
+    cfds.to_csv(updated_confounds_path, index=None, sep='\t')
+    confound_selectors = ["-motion", "-cosine", "-censor", "-dummy"]
+    if regress_globalsignal:
+        confound_selectors.append('-gs')
+    if aroma:
+        confound_selectors.append("-aroma")
+    if regress_gm:
+        confound_selectors.append("-gm")
+    cfds_to_use = select_confounds(cfds, confound_selectors)
+
+    cfds_to_use.to_csv(used_confounds_path, index=None, sep='\t')
 
     # clean boldtd
     cleaned = nl.image.clean_img(
@@ -473,6 +663,7 @@ def pfm_inputs_from_tedana(
         low_pass=0.1,
         mask_img=nl.image.load_img(boldmask_path),
         t_r=t_r,
+        detrend=False
     )
 
     cleaned.to_filename(cleaned_boldtd_path)

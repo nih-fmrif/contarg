@@ -262,6 +262,59 @@ def prepanat(fmriprep_dir, out_dir, subject, overwrite):
     default=2.5,
     help="Gaussian smoothing to apply to volumetric data",
 )
+@click.option(
+    "--regress-gm",
+    is_flag=True,
+    help="Regress mean grey matter time series.",
+)
+@click.option(
+    "--regress-globalsignal",
+    is_flag=True,
+    help="Regress mean global signal.",
+)
+@click.option(
+    "--max-outfrac",
+    type=float,
+    default=None,
+    show_default=True,
+    help="Maximum allowed fraction of outlier voxels in a frame",
+)
+@click.option(
+    "--max-fd",
+    type=float,
+    default=None,
+    show_default=True,
+    help="Maximum allowed framewise displacement.",
+)
+@click.option(
+    "--frames-before",
+    type=int,
+    default=0,
+    show_default=True,
+    help="How many frames to exclude prior to a frame excluded because of framewise displacement.",
+)
+@click.option(
+    "--frames-after",
+    type=int,
+    default=0,
+    show_default=True,
+    help="How many frames to exclude after a frame excluded because of framewise displacement.",
+)
+@click.option(
+    "--minimum-segment-length",
+    type=int,
+    default=None,
+    show_default=True,
+    help="Minimum number of consecutive non-censored frames allowed.",
+)
+@click.option(
+    "--minimum-total-length",
+    type=int,
+    default=None,
+    show_default=True,
+    help="Minimum number of consecutive non-censored frames allowed. "
+         "Note this is an integer number of frames, not minutes.",
+)
 @click.option("--subject", type=str, help="Subject id.", required=True)
 @click.option(
     "--session",
@@ -339,6 +392,14 @@ def run(
     t_r,
     cortical_smoothing,
     subcortical_smoothing,
+    regress_gm,
+    regress_globalsignal,
+    max_outfrac,
+    max_fd,
+    frames_before,
+    frames_after,
+    minimum_segment_length,
+    minimum_total_length,
     subject,
     session,
     acquisition,
@@ -371,6 +432,8 @@ def run(
         tans_inputs_from_fmriprep(
             fmriprep_dir, out_dir, subject=subject, overwrite=overwrite
         )
+    if precomputed_path is not None:
+        precomputed_path = Path(precomputed_path)
 
     # get stimroi and ref roi
     stimroi_path = get_stimroi_path(stimroi_name, stimroi_path, cifti=True)
@@ -422,6 +485,9 @@ def run(
                 )
             )
         for boldtd_path in bold_paths:
+            # TODO: make this less hacky and site specific
+            if 'old' in boldtd_path.parts[-2]:
+                continue
             cleaned_paths.append(
                 pfm_inputs_from_tedana(
                     boldtd_path,
@@ -432,7 +498,15 @@ def run(
                     n_dummy,
                     t_r,
                     nthreads,
+                    regress_globalsignal=regress_globalsignal,
+                    regress_gm=regress_gm,
                     noinputprep=nofuncinputprep,
+                    max_outfrac=max_outfrac,
+                    max_fd=max_fd,
+                    frames_before=frames_before,
+                    frames_after=frames_after,
+                    minimum_segment_length=minimum_segment_length,
+                    minimum_total_length=minimum_total_length,
                 )
             )
     else:
@@ -447,7 +521,7 @@ def run(
                         acq=acquisition,
                         space="T1w",
                         run=run,
-                        desc="optcomDenoised",
+                        desc="preproc",
                         suffix="bold",
                         extension=".nii.gz",
                     )
@@ -461,7 +535,7 @@ def run(
                     ses=session,
                     acq=acquisition,
                     space="T1w",
-                    desc="optcomDenoised",
+                    desc="preproc",
                     suffix="bold",
                     extension=".nii.gz",
                 )
@@ -470,31 +544,30 @@ def run(
         # set the subjects dir
         if subjects_dir is None:
             subjects_dir = fmriprep_dir / "sourcedata/freesurfer"
-
+        subjects_dir = Path(subjects_dir)
         if not subjects_dir.exists():
             raise FileNotFoundError("Could not find subjects dir at {subjects_dir}")
 
         for bold_path in bold_paths:
-            # TODO: fix pfm_inputs_from_fmriprep so that it uses the grey matter signal and not the global
-            confounds = [
-                "trans_x",
-                "trans_y",
-                "trans_z",
-                "rot_x",
-                "rot_y",
-                "rot_z",
-                "global_signal",
-            ]
             cleaned_paths.append(
                 pfm_inputs_from_fmriprep(
                     subject,
                     subjects_dir,
+                    fmriprep_dir,
                     out_dir,
                     bold_path,
                     t_r,
                     n_dummy,
-                    confounds=confounds,
+                    overwrite=overwrite,
                     aroma=aroma,
+                    regress_globalsignal=regress_globalsignal,
+                    regress_gm=regress_gm,
+                    max_outfrac=max_outfrac,
+                    max_fd=max_fd,
+                    frames_before=frames_before,
+                    frames_after=frames_after,
+                    minimum_segment_length=minimum_segment_length,
+                    minimum_total_length=minimum_total_length,
                 )
             )
 
@@ -506,32 +579,37 @@ def run(
         if (subses_anat_dir / "../../anat").resolve().exists():
             subses_anat_dir.symlink_to("../anat")
         else:
-            raise ValueError("Something's screwy with the paths. Dylan needs to fix it")
+            raise ValueError("Something's screwy with the paths. Dylan needs to fix it. "
+                             f"{subses_anat_dir} doesn't exist. "
+                             f"{(subses_anat_dir / '../../anat').resolve()} does not exist.")
 
     # smooth ciftis
     smoothed_paths = []
     for clean_path in cleaned_paths:
-        midthickL = subses_anat_dir / f"sub-{subject}.L.midthickness.32k_fs_LR.surf.gii"
-        midthickR = subses_anat_dir / f"sub-{subject}.R.midthickness.32k_fs_LR.surf.gii"
-        clean_ents = parse_bidsname(clean_path)
-        smoothed_updates = dict(desc=f"{clean_ents['desc']+f'smooothed'}")
-        smoothed_path = update_bidspath(clean_path, out_dir, smoothed_updates)
-        cmd = [
-            "wb_command",
-            "-cifti-smoothing",
-            clean_path.as_posix(),
-            f"{cortical_smoothing}",
-            f"{subcortical_smoothing}",
-            "COLUMN",
-            smoothed_path.as_posix(),
-            "-left-surface",
-            midthickL.as_posix(),
-            "-right-surface",
-            midthickR.as_posix(),
-            "-merged-volume",
-        ]
-        subprocess.run(cmd, check=True)
-        smoothed_paths.append(smoothed_path)
+        if (cortical_smoothing != 0) or (subcortical_smoothing != 0):
+            midthickL = subses_anat_dir / f"sub-{subject}.L.midthickness.32k_fs_LR.surf.gii"
+            midthickR = subses_anat_dir / f"sub-{subject}.R.midthickness.32k_fs_LR.surf.gii"
+            clean_ents = parse_bidsname(clean_path)
+            smoothed_updates = dict(desc=f"{clean_ents['desc']+f'smoothed'}")
+            smoothed_path = update_bidspath(clean_path, out_dir, smoothed_updates)
+            cmd = [
+                "wb_command",
+                "-cifti-smoothing",
+                clean_path.as_posix(),
+                f"{cortical_smoothing}",
+                f"{subcortical_smoothing}",
+                "COLUMN",
+                smoothed_path.as_posix(),
+                "-left-surface",
+                midthickL.as_posix(),
+                "-right-surface",
+                midthickR.as_posix(),
+                "-merged-volume",
+            ]
+            subprocess.run(cmd, check=True)
+            smoothed_paths.append(smoothed_path)
+        else:
+            smoothed_paths.append(clean_path)
 
     target_mask_updates = dict(
         desc=f"{target_method}Target", suffix="mask", space="fsLR", den="91k"
@@ -589,7 +667,9 @@ def run(
     elif target_method == "precomputed":
         if parse_bidsname(precomputed_path)['space'] == 'T1w':
             precomputed_mni_path = t1w_mask_to_mni(precomputed_path, fmriprep_dir, out_dir)
-        elif (parse_bidsname(precomputed_path)['space'] == 'MNI152NLin6Asym') and (parse_bidsname(precomputed_path)['res'] == '2'):
+        # TODO: revisit this after fixing the naming bug in hierarchical to check the res of the precomputed path with
+        # and (parse_bidsname(precomputed_path)['res'] == '2')
+        elif (parse_bidsname(precomputed_path)['space'] == 'MNI152NLin6Asym') :
             precomputed_mni_path = precomputed_path
         else:
             raise ValueError(f"precomputed_path must have a parsebly bidsish name and be in T1w or MNI152NLin6Asym "
