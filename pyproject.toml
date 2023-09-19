@@ -33,7 +33,9 @@ dependencies = [
   'niworkflows >= 1.7.1',
   'six >= 1.16.0',
   'fmriprep ~= 22.1.1',
-  'templateflow >= 23.0.0'
+  'templateflow >= 23.0.0',
+  'kneed >= 0.8.2',
+  'networkx >= 2.8.5'
 ]
 
 [project.optional-dependencies]

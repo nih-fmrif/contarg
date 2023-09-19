@@ -11,6 +11,10 @@ from contarg.utils import (
     get_rel_path,
     make_rel_symlink,
 )
+
+from contarg.cli.run_stimgrid import (
+    sort_circle_coords
+)
 import pytest
 import tempfile
 import shutil
@@ -150,6 +154,56 @@ def test_make_rel_symlink():
         with pytest.raises(ValueError):
             make_rel_symlink(symlink_path, target_dir)
 
+
+def test_sort_circle_coords():
+    cos_qtr_pi = np.sqrt(2)/2
+    coords = np.array(
+        [[1, 0],
+         [cos_qtr_pi, cos_qtr_pi],
+         [0, 1],
+         [-cos_qtr_pi, cos_qtr_pi],
+         [-1, 0],
+         [-cos_qtr_pi, -cos_qtr_pi],
+         [0, -1],
+         [cos_qtr_pi, -cos_qtr_pi]
+        ]
+    )
+    a = np.mean([0,cos_qtr_pi, 1, cos_qtr_pi])
+    b = np.mean([0,cos_qtr_pi, 1, -cos_qtr_pi])
+    expected = np.array(
+        [[ a, -b],
+         [ b, -a],
+         [-b, -a],
+         [-a, -b],
+         [-a,  b],
+         [-b,  a],
+         [ b,  a],
+         [ a,  b]]
+    )
+    assert np.allclose(expected, sort_circle_coords(coords, 2))
+
+
+def test_cross_pearson():
+    x = np.array([[1, 2, 3], [4, 5, 6], [7, 8, 9]])
+    y = np.array([[1, 2, 3], [4, 5, 6], [7, 8, 9]])
+    expected_rs = np.ones((3, 3))
+    expected_ps = np.ones((3, 3)) * 1.34157586e-08
+    expected_mcsig = np.ones((3, 3))
+    rs, ps, mcsig = cross_pearson(x, y)
+    assert np.allclose(rs, expected_rs)
+    assert np.allclose(ps, expected_ps)
+    assert np.allclose(mcsig, expected_mcsig)
+
+    # Test with two different arrays
+    x = np.array([[1, 2, 3], [4, 5, 6], [7, 8, 9]])
+    y = np.array([[9, 8, 7], [6, 5, 4], [3, 2, 1]])
+    expected_rs = np.array([[-1.0, -1.0, -1.0], [-1.0, -1.0, -1.0], [-1.0, -1.0, -1.0]])
+    expected_ps = np.ones((3, 3)) * 1.34157586e-08
+    expected_mcsig = np.ones((3, 3))
+    rs, ps, mcsig = cross_pearson(x, y)
+    assert np.allclose(rs, expected_rs)
+    assert np.allclose(ps, expected_ps)
+    assert np.allclose(mcsig, expected_mcsig)
 
 if __name__ == "__main__":
     test_cluster()

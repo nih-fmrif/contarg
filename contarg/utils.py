@@ -9,16 +9,23 @@ from nilearn import image, masking
 from niworkflows.interfaces.fixes import (
     FixHeaderApplyTransforms as ApplyTransforms,
 )  # pip
+from niworkflows.interfaces.cifti import _prepare_cifti, CIFTI_STRUCT_WITH_LABELS
 from nipype.interfaces.freesurfer import MRIConvert
 from sklearn.feature_extraction.image import grid_to_graph
 from scipy.sparse.csgraph import connected_components
+from scipy.spatial.distance import cdist, pdist, squareform
 from scipy.ndimage import (
     label,
     generate_binary_structure,
 )
+import nibabel as nb
+import networkx as nx
 from scipy import stats
+from statsmodels.stats.multitest import multipletests
 from pkg_resources import resource_filename
 import templateflow
+from nibabel import cifti2 as ci
+
 
 
 # code for transforming things to subject space
@@ -51,20 +58,31 @@ def make_path(
 
 
 def transform_mask_to_t1w(
-    row, inmask_col=None, inmask=None, outmask_col="boldmask_path"
+    row=None, inmask_col=None, inmask=None, outmask_col="boldmask_path",
+    reference=None, transforms=None, output_image=None
 ):
     if inmask_col is None and inmask is None:
         raise ValueError("one of mask_col or mask must be defined")
-    elif inmask_col is not None:
+    elif inmask_col and row is not None:
         inmask = row[inmask_col]
 
-    at = ApplyTransforms()
-    at.inputs.input_image = inmask
-    at.inputs.interpolation = "NearestNeighbor"
-    at.inputs.reference_image = row.boldref
-    at.inputs.transforms = [row.mnitoT1w]
-    at.inputs.output_image = row[outmask_col].as_posix()
-    at.inputs.float = True
+
+    if row is not None:
+        at = ApplyTransforms()
+        at.inputs.input_image = inmask
+        at.inputs.interpolation = "NearestNeighbor"
+        at.inputs.reference_image = row.boldref
+        at.inputs.transforms = [row.mnitoT1w]
+        at.inputs.output_image = row[outmask_col].as_posix()
+        at.inputs.float = True
+    else:
+        at = ApplyTransforms()
+        at.inputs.input_image = inmask
+        at.inputs.interpolation = "NearestNeighbor"
+        at.inputs.reference_image = reference
+        at.inputs.transforms = transforms
+        at.inputs.output_image = output_image
+        at.inputs.float = True
     _ = at.run()
 
 
@@ -159,6 +177,8 @@ def clean_mask(
 def select_confounds(cfds, cfds_sel):
     if not isinstance(cfds, pd.DataFrame):
         cfd = pd.read_csv(cfds, sep="\t")
+    else:
+        cfd = cfds.copy()
     cols = []
     # cfd = cfd.drop('censored', axis=1)
     if "-censor" in cfds_sel:
@@ -183,11 +203,13 @@ def select_confounds(cfds, cfds_sel):
         cols.extend([cc for cc in cfd.columns if "global_signal" in cc])
     if "-dummy" in cfds_sel:
         cols.extend([cc for cc in cfd.columns if "non_steady_state_outlier" in cc])
+    if "-gm" in cfds_sel:
+        cols.extend(["gm"])
     cfds = cfd.loc[:, cols].copy()
     return cfds
 
 
-def add_censor_columns(confound_path, boldmask_path, bold_path,
+def add_censor_columns(cfds, boldmask_path, bold_path,
                        max_outfrac=None, max_fd=None, frames_before=0, frames_after=0,
                        minimum_segment_length=None, minimum_total_length=None, n_dummy=0):
     """
@@ -197,7 +219,7 @@ def add_censor_columns(confound_path, boldmask_path, bold_path,
     Parameters
     ==========
 
-    confound_path : str or Path
+    cfds : str or Path or pandas DataFrame
         Path to fMRIPrep confounds tsv.
     boldmask_path : str or Path
         Path to mask for bold image.
@@ -223,12 +245,12 @@ def add_censor_columns(confound_path, boldmask_path, bold_path,
     cfds : Dataframe
         Pandas dataframe with censor columns added.
     """
-
-    cfds = pd.read_csv(confound_path, sep='\t')
+    if not isinstance(cfds, pd.DataFrame):
+        cfds = pd.read_csv(cfds, sep='\t')
     cfds['censored'] = False
 
     if max_outfrac is not None:
-        cfds['outfrac'] = toutcount(bold_path, confound_path, boldmask_path)
+        cfds['outfrac'] = toutcount(bold_path, cfds, boldmask_path, n_dummy)
         cfds['censored'] |= cfds.outfrac > max_outfrac
 
     if max_fd is not None:
@@ -251,7 +273,8 @@ def add_censor_columns(confound_path, boldmask_path, bold_path,
     cfds.censored = cfds.censored.astype(int)
 
     # censor dummy scans
-    cfds.loc[:n_dummy - 1, 'censored'] = 1
+    if n_dummy != 0:
+        cfds.loc[:n_dummy - 1, 'censored'] = 1
 
     if (minimum_total_length is not None) and ((len(cfds) - cfds.censored.sum()) < minimum_total_length):
         raise ValueError(
@@ -271,27 +294,46 @@ def add_censor_columns(confound_path, boldmask_path, bold_path,
     return cfds
 
 
-def toutcount(bold_path, confound_path, boldmask_path):
+def toutcount(bold_path, cfds, boldmask_path, n_dummy=0):
     """
     Based on AFNI's 3dToutCount. Returns the fraction of voxels inside the mask that are outliers at each TR.
     Parameters
     ==========
     bold_path : str or path
         Path to bold timeseries
-    confound_path : str or path
+    confound_path : str or path or pandas DataFrame
         Path to confound timeseries
     boldmask_path : str or path
         Path to boldmask
+    n_dummy : int, default 0
+        If passed, and bold and confounds are off by exactly n_dummy,
+        then drop those from the front of confounds and carry on.
 
     Returns
     =======
     outfrac : array of floats
         Fraction of voxels inside the mask that are outliers at each TR
     """
-    cfds = pd.read_csv(confound_path, sep='\t')
-    detrend_cfds = select_confounds(confound_path, ['-cosine', '-dummy'])
-    detrended_img = nl.image.clean_img(bold_path, standardize=False, detrend=False, confounds=detrend_cfds)
-    detrended_dat = nl.masking.apply_mask(detrended_img, boldmask_path)
+    if not isinstance(cfds, pd.DataFrame):
+        cfds = pd.read_csv(cfds, sep='\t')
+    detrend_cfds = select_confounds(cfds, ['-cosine', '-dummy'])
+    bold_img = nl.image.load_img(bold_path)
+    pad_result = False
+    if (bold_img.shape[-1] == len(cfds)):
+        detrended_img = nl.image.clean_img(bold_path, standardize=False, detrend=False, confounds=detrend_cfds)
+    elif ((bold_img.shape[-1] + n_dummy) == len(cfds)):
+        detrend_cfds = detrend_cfds.loc[n_dummy:, :]
+        detrended_img = nl.image.clean_img(bold_path, standardize=False, detrend=False, confounds=detrend_cfds)
+        pad_result = True
+    try:
+        detrended_dat = nl.masking.apply_mask(detrended_img, boldmask_path)
+    except ValueError:
+        # THis throws a value error if the mask has more than one value
+        # if you're passing the tedana good signal mask, it has more than one value, so this will deal with that
+        boldmask_img = nl.image.load_img(boldmask_path)
+        boldmask = nl.image.new_img_like(boldmask_img, data=boldmask_img.get_fdata() != 0, affine=boldmask_img.affine,
+                                        copy_header=True)
+        detrended_dat = nl.masking.apply_mask(detrended_img, boldmask)
 
     medians = np.median(detrended_dat, axis=0)
     deviations = np.abs(detrended_dat - medians)
@@ -299,9 +341,13 @@ def toutcount(bold_path, confound_path, boldmask_path):
     n = len(detrended_dat)
     alpha = stats.norm().ppf(1 - (0.001 / n))
     thresh = alpha * np.sqrt(np.pi / 2) * mad
-    res = (deviations >= thresh).sum(axis=1)
-
-    return res / mad.shape[0]
+    res = (deviations >= thresh).sum(axis=1) / mad.shape[0]
+    if pad_result:
+        padded_res = np.zeros(len(cfds))
+        padded_res[n_dummy:] = res
+        return padded_res
+    else:
+        return res
 
 
 def idxs_to_mask(idxs, mask_path):
@@ -440,15 +486,44 @@ def make_fmriprep_t2(fmriprep_dir, subject, out_dir):
         subject = subject
     else:
         subject = f"sub-{subject}"
+
+    t1_paths = find_bids_files(
+        fmriprep_dir / f"{subject}", type="anat", suffix="T1w", extension=".nii.gz"
+    )
+    t1_paths = [tp for tp in t1_paths if "space" not in tp.parts[-1]]
+    if len(t1_paths) > 1:
+        raise ValueError(f"Looking for a single T1, found {len(t1_paths)}: {t1_paths}")
+    elif len(t1_paths) == 0:
+        t1_paths = find_bids_files(
+            fmriprep_dir / f"{subject}", ses="*", type="anat", suffix="T1w", extension=".nii.gz"
+        )
+        t1_paths = [tp for tp in t1_paths if "space" not in tp.parts[-1]]
+        if len(t1_paths) > 1:
+            raise ValueError(f"Looking for a single T1, found {len(t1_paths)}: {t1_paths}")
+        elif len(t1_paths) == 0:
+            find_bids_files(
+                fmriprep_dir / f"{subject}", debug=True, ses="*", type="anat", suffix="T1w", extension=".nii.gz",
+            )
+            raise ValueError(f"Couldn't find a T1.")
+    fmriprep_t1 = t1_paths[0]
+
     fs_subjects_dir = fmriprep_dir / "sourcedata/freesurfer"
     fst2 = fs_subjects_dir / f"{subject}/mri/T2.mgz"
+
     if not fst2.exists():
         raise FileNotFoundError(fst2.as_posix())
-    fsnative_to_t1 = (
-        fmriprep_dir
-        / f"{subject}/anat/{subject}_from-fsnative_to-T1w_mode-image_xfm.txt"
-    )
-    fmriprep_t1 = fmriprep_dir / f"{subject}/anat/{subject}_desc-preproc_T1w.nii.gz"
+    fsnative_to_t1_ents = {
+        "suffix": "xfm",
+        "extension": "txt",
+        "from": "fsnative",
+        "to": "T1w",
+        "mode": "image",
+        "type": "anat",
+    }
+    fsnative_to_t1 = update_bidspath(fmriprep_t1, fmriprep_dir, fsnative_to_t1_ents)
+    if not fsnative_to_t1.exists():
+        raise FileNotFoundError(fsnative_to_t1)
+
 
     out_dir.mkdir(exist_ok=True, parents=True)
     out_t2fsn = out_dir / f"{subject}_space-fsnative_desc-preproc_T2w.nii.gz"
@@ -905,8 +980,16 @@ def t1w_mask_to_mni(mask_path, fmriprep_dir, out_dir, t1w_to_MNI152NLin6Asym_pat
             fmriprep_dir,
             t1w_to_MNI152NLin6Asym_ents,
             exclude=["desc", "ses", "task", "acq", "run", "atlas", "space"],
-            exists=True,
         )
+        if not t1w_to_MNI152NLin6Asym_path.exists():
+            t1w_to_MNI152NLin6Asym_path = update_bidspath(
+                mask_path,
+                fmriprep_dir,
+                t1w_to_MNI152NLin6Asym_ents,
+                exclude=["desc", "task", "acq", "run", "atlas", "space"],
+                exists=True
+            )
+
     ref = templateflow.api.get('MNI152NLin6Asym', resolution=2, suffix='T1w')[-1]
 
     mnimask_ents = dict(
@@ -930,3 +1013,451 @@ def t1w_mask_to_mni(mask_path, fmriprep_dir, out_dir, t1w_to_MNI152NLin6Asym_pat
     _ = at.run()
 
     return mnimask_path
+
+
+def surf_data_from_cifti(data, axis, surf_name):
+    assert isinstance(axis, ci.BrainModelAxis)
+    for name, data_indices, model in axis.iter_structures():  # Iterates over volumetric and surface structures
+        if name == surf_name:                                 # Just looking for a surface
+            data = data.T[data_indices]                       # Assume brainmodels axis is last, move it to front
+            vtx_indices = model.vertex                        # Generally 1-N, except medial wall vertices
+            surf_data = np.zeros((vtx_indices.max() + 1,) + data.shape[1:], dtype=data.dtype)
+            surf_data[vtx_indices] = data
+            return surf_data
+    raise ValueError(f"No structure named {surf_name}")
+
+
+def average_ranks(arr):
+    """
+    Computes the ranks of the elements of the given array along the last dimension.
+    For ties, the ranks are _averaged_. Returns an array of the same dimension of `arr`.
+
+    From: https://alextseng.net/blog/posts/20191115-vectorizing-ml-metrics/
+    """
+    sorted_inds = np.argsort(arr, axis=-1)  # Sorted indices
+    ranks, ranges = np.empty_like(arr), np.empty_like(arr)
+    ranges = np.tile(np.arange(arr.shape[-1]), arr.shape[:-1] + (1,))
+
+    np.put_along_axis(ranks, sorted_inds, ranges, -1)
+    ranks = ranks.astype(int)
+
+    sorted_arr = np.take_along_axis(arr, sorted_inds, axis=-1)
+    diffs = np.diff(sorted_arr, axis=-1)
+    # Pad with an extra zero at the beginning of every subarray
+    pad_diffs = np.pad(diffs, ([(0, 0)] * (diffs.ndim - 1)) + [(1, 0)])
+    # Wherever the diff is not 0, assign a value of 1; this gives a set of small indices
+    # for each set of unique values in the sorted array after taking a cumulative sum
+    pad_diffs[pad_diffs != 0] = 1
+    unique_inds = np.cumsum(pad_diffs, axis=-1).astype(int)
+
+    unique_maxes = np.zeros_like(arr)  # Maximum ranks for each unique index
+    # Using `put_along_axis` will put the _last_ thing seen in `ranges`, which will result
+    # in putting the maximum rank in each unique location
+    np.put_along_axis(unique_maxes, unique_inds, ranges, -1)
+    # We can compute the average rank for each bucket (from the maximum rank for each bucket)
+    # using some algebraic manipulation
+    diff = np.diff(unique_maxes, prepend=-1, axis=-1)  # Note: prepend -1!
+    unique_avgs = unique_maxes - ((diff - 1) / 2)
+
+    avg_ranks = np.take_along_axis(
+        unique_avgs, np.take_along_axis(unique_inds, ranks, -1), -1
+    )
+    return avg_ranks
+
+
+def _cross_corr(x, y=None, corr_only=False, spearman=False, output_mcps=False, **kwargs):
+    """
+        Compute correlation coefficient (spearman or pearson) between each pair of time series
+    from x and y and apply multiple hypothesis testing correction.
+
+    Parameters
+    ----------
+    x : ndarray
+        An array of shape (n_samples_x, n_features) containing time series data.
+    y : ndarray
+        An array of shape (n_samples_y, n_features) containing time series data.
+    corr_only : bool, default = False
+        Only run the correlation
+    spearman : bool, defalut = False
+        Use Spearman correlation
+    output_mcps : bool, default = False
+        If True, output multiple comparison corrected p-values intead of boolean mc-sig.
+    kwargs : dict, optional
+        Additional keyword arguments to be passed to the `multipletests` function.
+
+    Returns
+    -------
+    rs : ndarray
+        An array of shape (n_samples_x, n_samples_y) containing the
+        correlation coefficients between each pair of time series from x and y.
+    ps : ndarray
+        An array of shape (n_samples_x, n_samples_y) containing the p-values
+        associated with the Spearman's correlation coefficients.
+    mcsig : ndarray
+        An array of shape (n_samples_x, n_samples_y) containing the multiple hypothesis
+        testing corrected significant results (True if significant, False otherwise).
+    """
+    if y is None:
+        if spearman:
+            rs = squareform(1 - pdist(average_ranks(x), metric="correlation"))
+        else:
+            rs = squareform(1 - pdist(x,metric="correlation"))
+    else:
+        if spearman:
+            rs = 1 - cdist(average_ranks(x), average_ranks(y), metric="correlation")
+        else:
+            rs = 1 - cdist(x, y, metric="correlation")
+    if corr_only:
+        return rs, None, None
+    n = x.shape[-1]
+    ts = rs * np.sqrt((n - 2) / ((rs + 1.0) * (1.0 - rs)))
+    ps = stats.t.sf(np.abs(ts), n - 2) * 2
+    mcsig, mcps, _, _ = multipletests(ps.flatten(), **kwargs)
+    mcsig = mcsig.reshape(ps.shape)
+    if output_mcps:
+        return rs, ps, mcps
+    else:
+        return rs, ps, mcsig
+
+def cross_spearman(x, y, corr_only=False, **kwargs):
+    """
+        Compute Spearman's correlation coefficient between each pair of time series
+    from x and y using a nested loop and apply multiple hypothesis testing
+    correction.
+
+    Parameters
+    ----------
+    x : ndarray
+        An array of shape (n_samples_x, n_features) containing time series data.
+    y : ndarray
+        An array of shape (n_samples_y, n_features) containing time series data.
+    corr_only : bool, default = False
+        Only run the correlation
+    kwargs : dict, optional
+        Additional keyword arguments to be passed to the `multipletests` function.
+
+    Returns
+    -------
+    spear_rs : ndarray
+        An array of shape (n_samples_x, n_samples_y) containing the Spearmans's
+        correlation coefficients between each pair of time series from x and y.
+    spear_ps : ndarray
+        An array of shape (n_samples_x, n_samples_y) containing the p-values
+        associated with the Spearman's correlation coefficients.
+    mcsig : ndarray
+        An array of shape (n_samples_x, n_samples_y) containing the multiple hypothesis
+        testing corrected significant results (True if significant, False otherwise).
+    """
+    return _cross_corr(x, y, corr_only=corr_only, spearman=True, **kwargs)
+
+def cross_pearson(x, y, corr_only=False, **kwargs):
+    """
+        Compute Pearson's correlation coefficient between each pair of time series
+    from x and y using a nested loop and apply multiple hypothesis testing
+    correction.
+
+    Parameters
+    ----------
+    x : ndarray
+        An array of shape (n_samples_x, n_features) containing time series data.
+    y : ndarray
+        An array of shape (n_samples_y, n_features) containing time series data.
+    corr_only : bool, default = False
+        Only run the correlation
+    kwargs : dict, optional
+        Additional keyword arguments to be passed to the `multipletests` function.
+
+    Returns
+    -------
+    spear_rs : ndarray
+        An array of shape (n_samples_x, n_samples_y) containing the Pearsons's
+        correlation coefficients between each pair of time series from x and y.
+    spear_ps : ndarray
+        An array of shape (n_samples_x, n_samples_y) containing the p-values
+        associated with the Spearman's correlation coefficients.
+    mcsig : ndarray
+        An array of shape (n_samples_x, n_samples_y) containing the multiple hypothesis
+        testing corrected significant results (True if significant, False otherwise).
+    """
+    return _cross_corr(x, y, corr_only=corr_only, spearman=False, **kwargs)
+
+
+def graph_from_triangles(triangles):
+    pairs = np.vstack([triangles[:,[0,1]], triangles[:,[0,2]], triangles[:,[1,2]]])
+    G = nx.Graph()
+    G.add_edges_from(pairs)
+    return G
+
+
+class SurfROI(object):
+    def __init__(self, surface, hemisphere, timeseries=None, roi=None, idxs=None, take_largest_cc=False, dilate=0,
+                 exclude_mask=None):
+
+        self.take_largest_cc = take_largest_cc
+        self._dilated = dilate
+        self.ts = None
+        self._surf_ts_data = None
+
+        if roi is None and idxs is None:
+            raise ValueError('One of roi or idxs must be provided')
+
+        # load surface
+        if not isinstance(surface, nb.gifti.gifti.GiftiImage):
+            surface_path = Path(surface)
+            self.surface = nb.load(surface)
+        else:
+            self.surface = surface
+        self._surf_coords, self._surf_tris = self.surface.agg_data()
+        self._G = graph_from_triangles(self._surf_tris)
+
+        # load roi
+        if roi is not None:
+            if not isinstance(roi, nb.cifti2.cifti2.Cifti2Image):
+                roi_path = Path(roi)
+                self.roi_img = ci.load(roi_path)
+            else:
+                self.roi_img = roi
+        else:
+            self.roi_img = None
+
+        # process hemisphere
+        if hemisphere.lower() in ['r', 'right']:
+            self._hemisphere = 'right'
+            self._structure = 'CIFTI_STRUCTURE_CORTEX_RIGHT'
+        elif hemisphere.lower() in ['l', 'left']:
+            self._structure = 'CIFTI_STRUCTURE_CORTEX_LEFT'
+            self._hemisphere = 'left'
+        else:
+            raise ValueError(f"hemisphere should be one of ['r', 'right', 'l', 'left'], got {hemisphere}")
+
+        if roi is not None:
+            self._roi_dat = surf_data_from_cifti(self.roi_img.get_fdata(dtype=np.float32),
+                                                 self.roi_img.header.get_axis(1), self._structure).squeeze()
+            if not len(self._roi_dat) == len(self._surf_coords):
+                raise ValueError("ROI and surface don't have the same number of points")
+
+        if roi is not None:
+            roi_idxs = (self._roi_dat != 0).nonzero()[0]
+        else:
+            roi_idxs = idxs
+        if self.take_largest_cc:
+            self.idxs = np.array(list(max(nx.connected_components(self._G.subgraph(roi_idxs)), key=len)))
+        else:
+            self.idxs = roi_idxs
+
+        while dilate > 0:
+            self.idxs = np.unique(np.array(list(self._G.edges(self.idxs))).flatten())
+            dilate -= 1
+
+        if exclude_mask is not None:
+            self.idxs = self.idxs[~np.isin(self.idxs, np.nonzero(exclude_mask)[0])]
+
+        # load timeseries
+        if timeseries is not None:
+            self.set_timeseries(timeseries)
+
+        if not self._surf_coords.shape[-1] == 3:
+            raise ValueError(
+                f"Expected first element of surface to have 3 values per row, found {self._surf_points.shape[-1]}")
+        if not self._surf_tris.shape[-1] == 3:
+            raise ValueError(
+                f"Expected second element of surface to have 3 values per row, found {self._tris_points.shape[-1]}")
+        if not self._surf_tris.shape[0] >= self._surf_coords.shape[0]:
+            raise ValueError(
+                "Second element of surface should encode triangles and have more values than the number of points")
+
+        self.connectivity = nx.to_numpy_array(self._G, self.idxs)
+        self.coords = self._surf_coords[self.idxs]
+
+    def set_timeseries(self, timeseries):
+        if not isinstance(timeseries[0], np.ndarray):
+            ts_datas = []
+            for ts in timeseries:
+                timeseries_img = ci.load(ts)
+                ts = surf_data_from_cifti(timeseries_img.get_fdata(dtype=np.float32), timeseries_img.header.get_axis(1),
+                                          self._structure).squeeze()
+                ts_datas.append(ts)
+            ts_data = np.hstack(ts_datas)
+        else:
+            ts_data = timeseries
+
+        if ts_data.shape[0] != self._surf_coords.shape[0]:
+            raise ValueError(
+                "Timeseries first dimension should be the same size as first dimension of the first element of the surface gifti")
+        self._surf_ts_data = ts_data
+        self.ts = self._surf_ts_data[self.idxs]
+
+
+def dilate_subgraph(G, nodes, times=1):
+    """
+    Return a new array that includes nodes and all nodes connected to them,
+    effectivly dilating the list of nodes by one hop.
+    """
+    while times > 0:
+        nodes = np.unique(np.array(list(G.edges(nodes))).flatten())
+        times -= 1
+    return nodes
+
+
+def load_timeseries(timeseries):
+    rts_datas = []
+    lts_datas = []
+    ts_datas = []
+    for ts in timeseries:
+        timeseries_img = ci.load(ts)
+        lts = surf_data_from_cifti(timeseries_img.get_fdata(dtype=np.float32), timeseries_img.header.get_axis(1),
+                                   'CIFTI_STRUCTURE_CORTEX_LEFT').squeeze()
+        rts = surf_data_from_cifti(timeseries_img.get_fdata(dtype=np.float32), timeseries_img.header.get_axis(1),
+                                   'CIFTI_STRUCTURE_CORTEX_RIGHT').squeeze()
+
+        lts_datas.append(lts)
+        rts_datas.append(rts)
+        ts_datas.append(timeseries_img.get_fdata())
+    lts_data = np.hstack(lts_datas)
+    rts_data = np.hstack(rts_datas)
+    ts_data = np.vstack(ts_datas).T
+
+    return lts_data, rts_data, ts_data
+
+
+def new_cifti_like(data, ref_path, dtype=None, surface_labels=None, volume_label=None, metadata=None):
+    """Create a new CIFTI-2 image with the same structure as a reference image. Only 1-d data is implemented right now.
+
+    Parameters
+    ----------
+    data : numpy.ndarray
+        The data to be stored in the new CIFTI-2 image.
+    ref_path : str
+        The path to the reference image that defines the structure of the new image.
+    dtype : optional
+        The data type of the new image. If not specified, the data type of the reference image is used.
+    surface_labels : optional
+        A dictionary of paths to surface label files. Each key should be a string that identifies the hemisphere
+        (either "LEFT" or "RIGHT"). The corresponding value should be the path to the surface label file for that
+        hemisphere. If not specified, default surface labels for the 91k surface will be used.
+    volume_label : optional
+        The path to a volume label file. If not specified, a default volume label for the 91k volume will be used.
+    metadata : optional
+        A dictionary of metadata to be attached to the CIFTI-2 image. If not specified, default metadata for the 91k
+        structure will be used.
+
+    Returns
+    -------
+    nb.cifti2.Cifti2Image
+        A new CIFTI-2 image with the same structure as the reference image and the specified data.
+
+    Raises
+    ------
+    ValueError
+        If the data does not have the same number of values as teh reference image, or if the reference image does not
+        have brain model axis elements that match those in niworkflows.interfaces.cifti.CIFTI_STRUCT_WITH_LABELS.
+    """
+
+    surface_labels_91k, volume_label_91k, metadata_91k = _prepare_cifti("91k")
+    if surface_labels is None:
+        surface_labels = surface_labels_91k
+    if volume_label is None:
+        volume_label = volume_label_91k
+    if metadata is None:
+        metadata = metadata_91k
+
+    label_img = nb.load(volume_label)
+    label_data = np.asanyarray(label_img.dataobj).astype("int16")
+
+    ref_img = nb.load(ref_path)
+
+    timepoints = 1
+    bmaxis = None
+    bmaxis_num = None
+    for ii in ref_img.header.mapped_indices:
+        if isinstance(ref_img.header.get_axis(ii), nb.cifti2.cifti2_axes.BrainModelAxis):
+            bmaxis = ref_img.header.get_axis(ii)
+            bmaxis_num = ii
+    if bmaxis is None:
+        raise ValueError("couldn't find a brain model axis")
+    idx_offset = 0
+    brainmodels = []
+    if ref_img.get_fdata().shape[bmaxis_num] != data.shape[0]:
+        raise ValueError("Data's not the right shape")
+
+    for (name, data_indices, model), (structure, labels) in zip(bmaxis.iter_structures(),
+                                                                CIFTI_STRUCT_WITH_LABELS.items()):
+        assert name == structure
+        if labels is None:  # surface model
+            model_type = "CIFTI_MODEL_TYPE_SURFACE"
+            # use the corresponding annotation
+            hemi = structure.split("_")[-1]
+            # currently only supports L/R cortex
+            surf_verts = len(model.vertex)
+            labels = nb.load(surface_labels[hemi == "RIGHT"])
+            medial = np.nonzero(labels.darrays[0].data)[0]
+            vert_idx = ci.Cifti2VertexIndices(model.vertex)
+            bm = ci.Cifti2BrainModel(
+                index_offset=idx_offset,
+                index_count=len(vert_idx),
+                model_type=model_type,
+                brain_structure=structure,
+                vertex_indices=vert_idx,
+                n_surface_vertices=surf_verts,
+            )
+            idx_offset += len(vert_idx)
+        else:
+            model_type = "CIFTI_MODEL_TYPE_VOXELS"
+            for label in labels:
+                ijk = np.nonzero(label_data == label)
+                if ijk[0].size == 0:  # skip label if nothing matches
+                    continue
+
+            vox = ci.Cifti2VoxelIndicesIJK(model.voxel)
+            bm = ci.Cifti2BrainModel(
+                index_offset=idx_offset,
+                index_count=len(vox),
+                model_type=model_type,
+                brain_structure=structure,
+                voxel_indices_ijk=vox,
+            )
+            idx_offset += len(vox)
+        # add each brain structure to list
+        brainmodels.append(bm)
+
+    # add volume information
+    brainmodels.append(
+        ci.Cifti2Volume(
+            bmaxis.volume_shape,
+            ci.Cifti2TransformationMatrixVoxelIndicesIJKtoXYZ(-3, bmaxis.affine),
+        )
+    )
+
+    # generate Matrix information
+    series_map = ci.Cifti2MatrixIndicesMap(
+        (0,),
+        "CIFTI_INDEX_TYPE_SERIES",
+        number_of_series_points=timepoints,
+        series_exponent=0,
+        series_start=0.0,
+        series_step=0.0,
+        series_unit="SECOND",
+    )
+    geometry_map = ci.Cifti2MatrixIndicesMap(
+        (1,), "CIFTI_INDEX_TYPE_BRAIN_MODELS", maps=brainmodels
+    )
+    # provide some metadata to CIFTI matrix
+    if not metadata:
+        metadata = {
+            "surface": "fsLR",
+            "volume": "MNI152NLin6Asym",
+        }
+    # generate and save CIFTI image
+    matrix = ci.Cifti2Matrix()
+    matrix.append(series_map)
+    matrix.append(geometry_map)
+    matrix.metadata = ci.Cifti2MetaData(metadata)
+    hdr = ci.Cifti2Header(matrix)
+    img = ci.Cifti2Image(dataobj=data.reshape(1, -1), header=hdr)
+    if dtype is None:
+        img.set_data_dtype(ref_img.get_data_dtype())
+    else:
+        img.set_data_dtype(dtype)
+    img.nifti_header.set_intent("NIFTI_INTENT_CONNECTIVITY_DENSE_SERIES")
+
+    return img

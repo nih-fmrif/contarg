@@ -3,6 +3,9 @@
   <component name="VcsDirectoryMappings">
     <mapping directory="" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/contarg/resources/Targeted-Functional-Network-Stimulation" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/contarg/resources/cifti-matlab" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/contarg/resources/compare_matrices_to_assign_networks" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/contarg/resources/matlab_GIfTI" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/contarg/test/data" vcs="Git" />
   </component>
 </project>

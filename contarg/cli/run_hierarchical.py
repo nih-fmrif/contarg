@@ -1,5 +1,6 @@
 from pathlib import Path
 from bids import BIDSLayout  # pip version = 0.15.2
+import numpy as np
 import pandas as pd
 import nilearn as nl
 from nilearn import image, masking
@@ -23,7 +24,8 @@ from contarg.hierarchical import (
     get_com_in_mm,
     get_clust_image,
     get_vox_ref_corr,
-    prep_tedana_for_hierarchical
+    prep_tedana_for_hierarchical,
+    block_bootstrap
 )
 
 
@@ -343,6 +345,10 @@ def run(
         get_kwargs["desc"] = "optcomDenoised"
         get_kwargs.pop("space")
     bolds = layout.get(**get_kwargs)
+
+    # get a run number to use for things like the bold ref
+    dummy_run_number = parse_bidsname(bolds[0])['run']
+
     counfound_paths = None
     if tedana:
         boldtd_paths = [bb.path for bb in bolds]
@@ -352,10 +358,15 @@ def run(
             T1wboldtd_path, MNIboldtd_path, trunc_confounds_path = prep_tedana_for_hierarchical(
                 boldtd_path,
                 fmriprep_dir,
+                tedana_dir,
                 targeting_dir,
+                t_r,
                 n_dummy,
                 njobs,
-                overwrite=overwrite
+                overwrite=overwrite,
+                max_outfrac=max_outfrac, max_fd=max_fd,
+                frames_before=frames_before, frames_after=frames_after,
+                minimum_segment_length=minimum_segment_length, minimum_total_length=minimum_total_length,
             )
             if space == 'T1w':
                 bold_paths.append(T1wboldtd_path)
@@ -371,67 +382,15 @@ def run(
             confounds_path = update_bidspath(
                 bold_path, fmriprep_dir, confounds_ents, exists=True
             )
-    # clean bolds so they can be concatted
-    clean_bolds = []
-    for bold_path, confound_path in zip(bold_paths, confound_paths):
-        # inputs
-        boldmask_ents = dict(
-            desc="brain",
-            suffix="mask",
-        )
-        boldmask_path = update_bidspath(
-            bold_path, fmriprep_dir, boldmask_ents, exists=True
-        )
-        # output paths
-        cleaned_bold_ents = dict(desc=parse_bidsname(bold_path).get("desc", "") + "GSR")
-        cleaned_bold_path = update_bidspath(bold_path, targeting_dir, cleaned_bold_ents)
-        cleaned_bold_path.parent.mkdir(exist_ok=True, parents=True)
 
-        updated_confounds_ents = {}
-        updated_confounds_path = update_bidspath(
-            confound_path, targeting_dir, updated_confounds_ents
-        )
-        used_confounds_ents = {'desc':'usedconfounds'}
-        used_confounds_path = update_bidspath(
-            confound_path, targeting_dir, used_confounds_ents
-        )
-
-        if not overwrite and cleaned_bold_path.exists():
-            pass
-        else:
-
-            # deal with confounds
-            if tedana:
-                confound_selectors = ["-gs", "-motion", "-cosine", "-censor"]
-            else:
-                confound_selectors = ["-gs", "-motion", "-dummy", "-cosine", "-censor"]
-
-            cfds = add_censor_columns(confound_path, boldmask_path, bold_path, max_outfrac, max_fd,
-                                      frames_before, frames_after, minimum_segment_length, minimum_total_length, n_dummy)
-            cfds.to_csv(updated_confounds_path, index=None, sep='\t')
-            cfds = select_confounds(cfds, confound_selectors)
-            cfds.to_csv(used_confounds_path, index=None, sep='\t')
-
-            # clean bold
-            cleaned = nl.image.clean_img(
-                nl.image.load_img(bold_path).slicer[:, :, :, n_dummy:],
-                detrend=False,
-                confounds=cfds,
-                high_pass=0.01,
-                low_pass=0.1,
-                mask_img=nl.image.load_img(boldmask_path),
-                t_r=t_r,
-            )
-            cleaned.to_filename(cleaned_bold_path)
-        clean_bolds.append(cleaned_bold_path)
 
     if concat:
         bolds = []
-        clean_concat_path = update_bidspath(clean_bolds[0], targeting_dir, updates={}, exclude='run')
+        clean_concat_path = update_bidspath(bold_paths[0], targeting_dir, updates={}, exclude='run')
         if not overwrite and clean_concat_path.exists():
             pass
         else:
-            clean_bold_imgs = [nl.image.load_img(cbi) for cbi in clean_bolds]
+            clean_bold_imgs = [nl.image.load_img(cbi) for cbi in bold_paths]
             frames = []
             for img in clean_bold_imgs:
                 frames.extend([i for i in nl.image.iter_img(img)])
@@ -439,9 +398,8 @@ def run(
             clean_concat_img.to_filename(clean_concat_path)
         bolds.append(clean_concat_path)
     else:
-        bolds = clean_bolds
-    # get a run number to use for things like the bold ref
-    dummy_run_number = parse_bidsname(clean_bolds[0])['run']
+        bolds = bold_paths
+
     rest_paths = pd.DataFrame([layout.parse_file_entities(bb) for bb in bolds])
     rest_paths["entities"] = [layout.parse_file_entities(bb) for bb in bolds]
     rest_paths["bold_path"] = bolds
@@ -887,3 +845,35 @@ def run(
             n_dummy,
         )
         vox_ref_corr_img.to_filename(target_row[f"{desc}_net_reference_correlation"])
+
+
+def test_block_bootstrap():
+    # Test with random data.
+    np.random.seed(0)
+    ts = np.random.randn(500, 430)
+    nsamples = 10
+    block_length = 10
+    samples = block_bootstrap(ts, nsamples, block_length)
+
+    # Check that the output has the correct shape.
+    assert samples.shape == (nsamples, ts.shape[0], ts.shape[1])
+
+    # check that all the values in the output came from the correct row in the input
+    assert np.all([np.isin(ss, tt) for sample in samples for tt, ss in zip(ts, sample)])
+
+    block_length = 55
+    samples = block_bootstrap(ts, nsamples, block_length)
+
+    # Check that the output has the correct shape.
+    assert samples.shape == (nsamples, ts.shape[0], ts.shape[1])
+
+    # check that all the values in the output came from the correct row in the input
+    assert np.all([np.isin(ss, tt) for sample in samples for tt, ss in zip(ts, sample)])
+
+    # Test with a different seed.
+    seed = 1
+    samples1 = block_bootstrap(ts, nsamples, block_length, seed)
+    samples2 = block_bootstrap(ts, nsamples, block_length, seed)
+
+    # Check that the two sets of samples are the same.
+    assert np.allclose(samples1, samples2)

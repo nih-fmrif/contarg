@@ -9,6 +9,8 @@ import templateflow
 from niworkflows.interfaces.cifti import _prepare_cifti, CIFTI_STRUCT_WITH_LABELS
 import warnings
 import json
+from scipy.spatial.distance import cdist
+from sklearn.cluster import KMeans
 import nilearn as nl
 from nilearn.image import resample_to_img
 from niworkflows.interfaces.nibabel import reorient_image
@@ -20,6 +22,10 @@ from contarg.utils import (
     parse_bidsname,
     build_bidsname,
     get_stimroi_path,
+    get_refroi_path,
+    transform_mask_to_t1w,
+    find_bids_files,
+    update_bidspath
 )
 import configparser
 import pandas as pd
@@ -76,7 +82,7 @@ def write_headmodel_script(
     % clear matlab's ldlibrary path
     tmp_path = getenv('LD_LIBRARY_PATH');
     setenv('LD_LIBRARY_PATH', '');
-
+    setenv('MPLBACKEND', '');
     % If successful, each of the commands below should return status as 0.
 
     % Confirm various software is available
@@ -233,8 +239,8 @@ def write_sim_script(
     tans_path=None,
     nthreads=20,
 ):
-    if subject[:4] == "sub-":
-        subject = subject[4:]
+
+
 
     out_dir = Path(out_dir)
     m_dir = Path(out_dir / "matlab_scripts")
@@ -772,6 +778,137 @@ def mask_to_cifti(mask, out_dir, **kwargs):
     )
     return cifti_path
 
+def mask_to_fsLR(out_dir, roi_name, subjects_dir, subject, session, fmriprep_dir, anat_dir, **kwargs):
+    out_dir = Path(out_dir)
+    out_dir.mkdir(exist_ok=True, parents=True)
+    subjects_dir = Path(subjects_dir)
+    fmriprep_dir = Path(fmriprep_dir)
+
+    if subject[:4] == "sub-":
+        subject = subject[4:]
+    try:
+        if session[:4] == "ses-":
+            session = session[4:]
+    except TypeError:
+        pass
+    # Try MNIvol to T1wvol to freesurfer surf to sub fsLR
+    # MNIvol to T1wvolx
+    try:
+        inmask = get_stimroi_path(roi_name)
+    except ValueError:
+        inmask = get_refroi_path(roi_name)
+    t1_paths = find_bids_files(
+        fmriprep_dir / f"sub-{subject}", type="anat", suffix="T1w", extension=".nii.gz"
+    )
+    t1_paths = [tp for tp in t1_paths if "space" not in tp.parts[-1]]
+    if len(t1_paths) > 1:
+        raise ValueError(f"Looking for a single T1, found {len(t1_paths)}: {t1_paths}")
+    elif len(t1_paths) == 0:
+        t1_paths = find_bids_files(
+            fmriprep_dir / f"sub-{subject}", ses="*", type="anat", suffix="T1w", extension=".nii.gz"
+        )
+        t1_paths = [tp for tp in t1_paths if "space" not in tp.parts[-1]]
+        if len(t1_paths) > 1:
+            raise ValueError(f"Looking for a single T1, found {len(t1_paths)}: {t1_paths}")
+        elif len(t1_paths) == 0:
+            find_bids_files(
+                fmriprep_dir / f"sub-{subject}", debug=True, ses="*", type="anat", suffix="T1w", extension=".nii.gz",
+            )
+            raise ValueError(f"Couldn't find a T1.")
+    reference_image = t1_paths[0]
+    tfm_updates = {
+        "from": "MNI152NLin6Asym",
+        "to": "T1w",
+        "mode": "image",
+        "suffix": "xfm",
+        "extension": "h5"
+    }
+    transforms = [update_bidspath(reference_image, fmriprep_dir, tfm_updates, exists=True, exclude='desc').as_posix()]
+
+    t1w_mask = out_dir / f"sub-{subject}_ses-{session}_task-rest_atlas-Coords_space-T1w_desc-{roi_name}Clean_mask.nii.gz"
+
+    transform_mask_to_t1w(inmask=inmask, reference=reference_image, transforms=transforms, output_image=t1w_mask.as_posix())
+    l_metric_out = out_dir / f"sub-{subject}_ses-{session}.L.{roi_name}.32k_fs_LR.shape.gii"
+    r_metric_out = out_dir / f"sub-{subject}_ses-{session}.R.{roi_name}.32k_fs_LR.shape.gii"
+    cifti_path = out_dir / f"sub-{subject}_ses-{session}_space-fsLR_den-91k_desc-{roi_name}.dtseries.nii"
+
+    # T1w vol mask to freesurfer surf
+    for h, metric_out in [('l', l_metric_out), ('r', r_metric_out)]:
+        H = h.upper()
+        out_file = out_dir/f'sub-{subject}_ses-{session}_task-rest_atlas-Coords_hemi-{H}_space-fsnative_desc-{roi_name}.gii'
+        hemi=f'{h}h'
+        os.environ['SUBJECTS_DIR'] = (Path(subjects_dir)).as_posix()
+        cmd = [
+            "mri_vol2surf",
+            "--regheader",
+            f"sub-{subject}",
+            "--src",
+            t1w_mask,
+            "--out",
+            out_file,
+            "--hemi",
+            hemi,
+            "--interp",
+            "nearest",
+            "--surf",
+            "midthickness",
+            "--cortex"
+        ]
+        subprocess.run(cmd, check=True)
+
+        #freesurfersurf to fslr
+        H = h.upper()
+        subj_dir = Path(subjects_dir) / f"sub-{subject}"
+        surf_dir = subj_dir / "surf"
+        os.environ["SUBJECTS_DIR"] = subjects_dir.as_posix()
+
+        sma_dir = Path(resource_filename("contarg", "data/standard_mesh_atlases"))
+
+        new_sphere = sma_dir / f"fs_LR-deformed_to-fsaverage.{H}.sphere.32k_fs_LR.surf.gii"
+        current_area = surf_dir / f"{h}h.midthickness.surf.gii"
+        new_area = anat_dir / f"sub-{subject}.{H}.midthickness.32k_fs_LR.surf.gii"
+        current_sphere = surf_dir / f"{h}h.sphere.reg.surf.gii"
+        metric_in = out_file
+        cmd = [
+            "wb_command",
+            "-metric-resample",
+            metric_in,
+            current_sphere,
+            new_sphere,
+            "ADAP_BARY_AREA",
+            metric_out,
+            "-area-surfs",
+            current_area,
+            new_area,
+        ]
+        subprocess.run(cmd, check=True)
+
+        # Threshold the output to get a mask
+        cmd = [
+            "wb_command",
+            "-metric-math",
+            "x>0.5",
+            metric_out,
+            "-var",
+            "x",
+            metric_out,
+        ]
+        subprocess.run(cmd, check=True)
+
+        surface_labels, volume_labels, metadata = _prepare_cifti("91k")
+
+    # write cifti
+    _create_cifti_image(
+        inmask,
+        volume_labels,
+        [l_metric_out, r_metric_out],
+        surface_labels,
+        metadata,
+        cifti_path,
+        **kwargs,
+    )
+    return cifti_path
+
 
 def _create_cifti_image(
     mask_file,
@@ -974,6 +1111,7 @@ def tans_inputs_from_fmriprep(fmriprep_dir, out_dir, subject, overwrite=False):
         for metric, new_metric_name in [
             ("area.mid", "midthickness_va"),
             ("sulc", None),
+            ("curv", None)
         ]:
             metric_out = (
                 subj_out_dir
@@ -988,12 +1126,12 @@ def tans_inputs_from_fmriprep(fmriprep_dir, out_dir, subject, overwrite=False):
                 subj_out_dir,
                 new_metric_name=new_metric_name,
             )
-    for metric in ["midthickness_va", "sulc"]:
+    for metric in ["midthickness_va", "sulc", "curv"]:
         create_dense_scalar(
             metric, subject, subjects_dir, subj_out_dir, overwrite=overwrite
         )
 
-    for surf in ["pial", "white"]:
+    for surf in ["pial", "white", "inflated"]:
         for h in ["l", "r"]:
             make_surf_gifti(surf, subject, subjects_dir, h, overwrite=overwrite)
             surface_resample(
@@ -1002,7 +1140,7 @@ def tans_inputs_from_fmriprep(fmriprep_dir, out_dir, subject, overwrite=False):
 
 
 def clean_bold(
-    bold_path, out_dir, n_dummy, t_r, confounds=None, aroma=False, overwrite=False
+    bold_path, out_dir, n_dummy, t_r, cfds_to_use=None, confounds=None, aroma=False, overwrite=False
 ):
     """
     Regresses the specified confounds from an fmriprep processed bold time series.
@@ -1018,6 +1156,8 @@ def clean_bold(
         Number of dummy volumes to trim from the beginning of the time series
     t_r : float
         TR in seconds
+    cfds_to_use : DataFrame, optional
+        Dataframe of confounds. If this is passed, confounds will be ignored.
     confounds : list of str
         List of confounds to regress out of the timeseries. Should correspond to column labels in confounds.tsv
     aroma : bool
@@ -1040,7 +1180,10 @@ def clean_bold(
     if not overwrite and out_path.exists():
         return out_path
     # pull confounds
-    if confounds is not None:
+    if cfds_to_use is not None:
+        confound_names = list(cfds_to_use.columns)
+        cfds_to_use = cfds_to_use.loc[n_dummy:, confound_names]
+    elif confounds is not None:
         confound_names = confounds.copy()
         bold_parts = parse_bidsname(bold_path.parts[-1])
         for k in ["space", "res", "hemi"]:

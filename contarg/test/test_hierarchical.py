@@ -157,6 +157,33 @@ def test_multi_subject():
         assert out_df.equals(ref_df)
 
 
+def test_get_normed_neg_minus_pos():
+
+    pears_rs = np.array([[ 0.1, -0.3,  0.4],
+                         [-0.2,  0.2 , -0.1],
+                         [ 0.3, -0.1,  0.9 ]])
+
+    mcsig = np.array([[False, True, True],
+                      [False, False, False],
+                      [True, False,  True]])
+
+    cluster_sizes = np.array([5, 7, 8])
+
+    # expected values
+    num_neg_corr = np.array([7, 0, 0])
+    num_pos_corr = np.array([8, 0, 13])
+    norm_neg_minus_pos = np.array([-0.05,  0.  , -0.65])
+
+    # test function
+    out_num_neg_corr, out_num_pos_corr, out_norm_neg_minus_pos = get_normed_neg_minus_pos(pears_rs, mcsig, cluster_sizes)
+
+    # test assertions
+    np.testing.assert_allclose(out_num_neg_corr, num_neg_corr)
+    np.testing.assert_allclose(out_num_pos_corr, num_pos_corr)
+    np.testing.assert_allclose(out_norm_neg_minus_pos, norm_neg_minus_pos)
+
+
 if __name__ == "__main__":
     test_single_subject()
     test_multi_subject()
+    test_get_normed_neg_minus_pos()
