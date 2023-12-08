@@ -530,7 +530,8 @@ def run_opt_and_save_outputs(o):
     try:
         run_simnibs(o)
         outpath = o.pathfem
-    except ValueError:
+    except ValueError as e:
+        print(e)
         try:
             outpath = o.pathfem + '_ts-4'
             no = opt_struct.TMSoptimize()
