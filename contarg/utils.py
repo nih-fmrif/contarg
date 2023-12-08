@@ -1461,3 +1461,21 @@ def new_cifti_like(data, ref_path, dtype=None, surface_labels=None, volume_label
     img.nifti_header.set_intent("NIFTI_INTENT_CONNECTIVITY_DENSE_SERIES")
 
     return img
+
+
+def replace_cifti_data(data, ref_path):
+    """from: https://neurostars.org/t/alter-size-of-matrix-for-new-cifti-header-nibabel/20903"""
+    cii = nb.load(ref_path)
+    h = cii.header
+    f = cii.get_fdata()
+
+    f_new = data
+
+    ax_0 = nb.cifti2.SeriesAxis(start=1, step=1, size=f_new.shape[0])
+    ax_1 = h.get_axis(1)
+
+    # Create new header and cifti object
+    new_h = nb.cifti2.Cifti2Header.from_axes((ax_0, ax_1))
+    cii_new = nb.cifti2.Cifti2Image(f_new, new_h)
+
+    return cii_new
