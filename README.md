@@ -4,6 +4,11 @@
 
 A python package implementing/wrapping methods for functional connectivity personalized targeting of rTMS therapy.
 
+## OHBM 2024 abstract
+Find our submitted abstract for OHBM 2024 [here](https://docs.google.com/document/d/1eqzuqUSnhQjKbrALGUc8Ikuy8HfuqrwwD8nI_nxANHo/edit).
+Examples of running the comprehensive targeting approach described there are available in the notebooks directory,
+along with code for analyzing the results.
+
 ## Getting test data
 ```commandline
 git submodule init
