@@ -5,6 +5,8 @@ from niworkflows.interfaces.fixes import (
 )
 import nilearn as nl
 from nilearn import image
+from statsmodels.stats import weightstats
+
 from contarg.utils import (
     add_censor_columns,
     select_confounds,
@@ -12,9 +14,12 @@ from contarg.utils import (
     surf_data_from_cifti,
     get_stimroi_path,
     get_refroi_path,
-    SurfROI
+    SurfROI,
+    load_timeseries, cross_spearman
 )
 from contarg.stimgrid import angle_between
+from contarg.clustering import cluster_and_plot
+from contarg.hierarchical import get_surface_cluster_stats
 import templateflow
 from smriprep.interfaces.workbench import SurfaceResample
 import numpy as np
@@ -34,6 +39,7 @@ from sklearn.decomposition import PCA
 from mixedvines.mixedvine import MixedVine
 from mixedvines.copula import GaussianCopula
 from scipy.stats import norm
+from scipy import stats
 
 
 GII_PATTERN = ['sub-{subject}[/ses-{session}]/{datatype<anat>|anat}/sub-{subject}[_ses-{session}][_task-{task}][_acq-{acquisition}][_ce-{ceagent}][_rec-{reconstruction}][_run-{run}][_hemi-{hemi}][_space-{space}][_den-{density}][_desc-{desc}][_part-{part}]_{suffix<T1w|T2w|T2star|T2starw|FLAIR|FLASH|PD|PDw|PDT2|inplaneT[12]|angio|curv|inflated|midthickness|pial|sulc|thickness|white|mask>}{extension<.nii|.nii.gz|.surf.gii|.shape.gii>}']

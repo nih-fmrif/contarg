@@ -372,13 +372,7 @@ def run_sim_and_clean(fnamehead, pathfem, coil_path, matsimnibs):
     show_default=True,
     help="Number of jobs to run in parallel to find targets",
 )
-@click.option(
-    "--min-mt-thresh",
-    type=int,
-    default=50,
-    show_default=True,
-    help="Minimum percent MT to call something an activation. Must be greater than max-mt",
-)
+
 @click.option(
     "--max-mt",
     type=int,
@@ -386,7 +380,38 @@ def run_sim_and_clean(fnamehead, pathfem, coil_path, matsimnibs):
     show_default=True,
     help="Maximum motor threshold. Stimulation values will be scaled based on this.",
 )
-def sim_uncert(headmesh_path, settings_path, ix, coil_path, tmp_dir, out_dir, njobs=1, min_mt_thresh=50, max_mt=80):
+@click.option(
+    "--thresh-type",
+    type=click.Choice(['mt', 'motor-threshold', 'fi', 'field-intensity'], case_sensitive=False),
+    default='mt',
+    show_default=True,
+    help="Should the threhold be interpretted as a motor threshold or a E-field threshold in V/m."
+)
+@click.option(
+    "--min-thresh",
+    type=int,
+    default=60,
+    show_default=True,
+    help="Minimum threshold value to call something an activation. Must be less than max-thresh",
+)
+@click.option(
+    "--max-thresh",
+    type=int,
+    default=120,
+    show_default=True,
+    help="Maximum threshold. Vertices receiving this amount or greater"
+         " will be given an activation probability of 100%.",
+)
+def sim_uncert(headmesh_path, settings_path, ix, coil_path, tmp_dir, out_dir, njobs=1, max_mt=80,
+               thresh_type='mt', min_thresh=60, max_thresh=120
+               ):
+    # deal with thesh_type
+    if thresh_type.lower() in ['mt', 'motor-threshold']:
+        thresh_type = 'mt'
+    elif thresh_type.lower() in ['fi', 'field-intensity']:
+        thresh_type = 'fi'
+    else:
+        raise NotImplementedError
     Tmp_dir = Path(tmp_dir)
     Tmp_dir.mkdir(exist_ok=True, parents=True)
     out_dir = Path(out_dir)
@@ -394,9 +419,9 @@ def sim_uncert(headmesh_path, settings_path, ix, coil_path, tmp_dir, out_dir, nj
     settings = settings.loc[settings.oix == ix].copy()
 
     # check that min_mt_thresh is below max_mt
-    if min_mt_thresh >= max_mt:
-        raise ValueError(f"min_mt_thresh must be below max_mt, you passed min_mt_thresh={min_mt_thresh} "
-                         f"and max_mt={max_mt}.")
+    if min_thresh >= max_thresh:
+        raise ValueError(f"min_mt_thresh must be below max_mt, you passed min_thresh={min_thresh} "
+                         f"and max_thresh={max_thresh}.")
 
     # get max magne
     magne_path = list(Path(settings_path).parent.parent.glob('*magnE_stat.dtseries.nii'))[0]
@@ -404,6 +429,15 @@ def sim_uncert(headmesh_path, settings_path, ix, coil_path, tmp_dir, out_dir, nj
     all_magne = magne_img.get_fdata()
     all_magne = all_magne.T
     max_magnE = all_magne.max(0)[ix]
+
+    # Get threshold in terms of MT, even if it was given in terms of field
+    # this way we can do targeting before we know the MT
+    if thresh_type == 'fi':
+        min_mt_thresh = (min_thresh / max_magnE) * max_mt
+        max_mt_thresh = (max_thresh / max_magnE) * max_mt
+    else:
+        min_mt_thresh = min_thresh
+        max_mt_thresh = max_thresh
 
     # variables for building outmesh names
     subject = Path(headmesh_path).parts[-1].split(".")[0]
@@ -448,7 +482,7 @@ def sim_uncert(headmesh_path, settings_path, ix, coil_path, tmp_dir, out_dir, nj
     stdfile = out_dir / f'oix-{ix:04d}_stat-std_magnE.nii.gz'
     atpfile = out_dir / f'oix-{ix:04d}_stat-abovethreshactprobs_magnE.nii.gz'
 
-    def get_maps_stats(files, weights, max_magnE, min_mt_thresh, max_mt=80):
+    def get_maps_stats(files, weights, max_magnE, min_mt_thresh, max_mt_thresh, max_mt=80):
         shape = nb.load(files[0]).shape
         vals = np.zeros((shape[0], shape[1], shape[2], len(files)))
         for fix, (unc_map, w) in enumerate(zip(files, weights)):
@@ -457,8 +491,8 @@ def sim_uncert(headmesh_path, settings_path, ix, coil_path, tmp_dir, out_dir, nj
         S = ((vals - mean.reshape(shape[0], shape[1], shape[2], 1)) ** 2 * weights).sum(-1)
         mts = (vals / max_magnE) * max_mt
         t = min_mt_thresh
-        m = -0.9 / (t - max_mt)
-        b = 1 - (m * max_mt)
+        m = -0.9 / (t - max_mt_thresh)
+        b = 1 - (m * max_mt_thresh)
         act_weighted_mts = mts * m + b
         act_weighted_mts[act_weighted_mts < 0] = 0
         act_weighted_mts[act_weighted_mts > 1] = 1
@@ -477,13 +511,15 @@ def sim_uncert(headmesh_path, settings_path, ix, coil_path, tmp_dir, out_dir, nj
         run_weights.append(weight)
         i += 1
         if i == n_per_job:
-            jobs.append(delayed(get_maps_stats)(files, np.array(run_weights), max_magnE, min_mt_thresh, max_mt))
+            jobs.append(delayed(get_maps_stats)(files, np.array(run_weights), max_magnE,
+                                                min_mt_thresh, max_mt_thresh, max_mt))
             files = []
             run_weights = []
             i = 0
     # deal with leftovers
     if len(files) > 0:
-        jobs.append(delayed(get_maps_stats)(files, np.array(run_weights), max_magnE, min_mt_thresh, max_mt))
+        jobs.append(delayed(get_maps_stats)(files, np.array(run_weights), max_magnE,
+                                            min_mt_thresh, max_mt_thresh, max_mt))
     maps = Parallel(n_jobs=njobs, verbose=10)(jobs)
 
     # aggregate mean images
