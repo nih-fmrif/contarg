@@ -1,5 +1,6 @@
 from collections import namedtuple
 from pathlib import Path
+import subprocess
 from niworkflows.interfaces.fixes import (
     FixHeaderApplyTransforms as ApplyTransforms,
 )
@@ -1366,3 +1367,112 @@ def run_clusters(subject, concat_nii, clust_outdir, src_surf_dir,
         dstim_verts = pd.read_pickle(dstim_verts_file)
 
     return ref_clusters, ref_ts, ref_repts, dstim_clusters, dstim_verts
+
+
+def make_uncert_surfaces(subject, src_surf_dir, uncert_dir, overwrite=False):
+    surfaces = load_liston_surfs(subject, src_surf_dir)
+
+    medial_wall = {}
+    medial_wall['l'] = templateflow.api.get(template='fsLR', density='32k', desc='nomedialwall', hemi='L')
+    medial_wall['r'] = templateflow.api.get(template='fsLR', density='32k', desc='nomedialwall', hemi='R')
+
+    catted_means = uncert_dir / f"sub-{subject}_desc-magnEmean_stat.nii.gz"
+    if not catted_means.exists() or overwrite:
+        cmd = [
+            "3dTcat",
+            "-overwrite",
+            "-prefix",
+            catted_means,
+            f"{uncert_dir.as_posix()}/*mean_magnE.nii.gz"
+        ]
+        subprocess.run(cmd, check=True)
+
+    catted_stds = uncert_dir / f"sub-{subject}_desc-magnEstd_stat.nii.gz"
+    if not catted_stds.exists() or overwrite:
+        cmd = [
+            "3dTcat",
+            "-overwrite",
+            "-prefix",
+            catted_stds,
+            f"{uncert_dir.as_posix()}/*std_magnE.nii.gz"
+        ]
+        subprocess.run(cmd, check=True)
+
+    catted_counts = uncert_dir / f"sub-{subject}_desc-abovethreshactprobs_stat.nii.gz"
+    if not catted_counts.exists() or overwrite:
+        cmd = [
+            "3dTcat",
+            "-overwrite",
+            "-prefix",
+            catted_counts,
+            f"{uncert_dir.as_posix()}/*abovethreshactprobs_magnE.nii.gz"
+        ]
+        subprocess.run(cmd, check=True)
+
+    cifti_outs = []
+    for metric_path in [catted_means, catted_stds, catted_counts]:
+        cifti_out = metric_path.as_posix().replace(".nii.gz", ".dtseries.nii").replace("_desc-",
+                                                                                       "_space-fsLR_den-32k_desc-")
+        if not Path(cifti_out).exists() or overwrite:
+            l_out_gifti = metric_path.as_posix().replace(".nii.gz", ".shape.gii").replace("_desc-",
+                                                                                          "_hemi-L_space-fsLR_den-32k_desc-")
+            l_v2s_cmd = [
+                'wb_command',
+                '-volume-to-surface-mapping',
+                metric_path.as_posix(),
+                surfaces.l.midthickness.path,
+                l_out_gifti,
+                '-ribbon-constrained',
+                surfaces.l.white.path,
+                surfaces.l.pial.path,
+            ]
+            subprocess.run(l_v2s_cmd, check=True)
+
+            l_metricmask_cmd = [
+                'wb_command',
+                '-metric-mask',
+                l_out_gifti,
+                medial_wall['l'],
+                l_out_gifti
+            ]
+            subprocess.run(l_metricmask_cmd, check=True)
+
+            r_out_gifti = metric_path.as_posix().replace(".nii.gz", ".shape.gii").replace("_desc-",
+                                                                                          "_hemi-R_space-fsLR_den-32k_desc-")
+            r_v2s_cmd = [
+                'wb_command',
+                '-volume-to-surface-mapping',
+                metric_path.as_posix(),
+                surfaces.r.midthickness.path,
+                r_out_gifti,
+                '-ribbon-constrained',
+                surfaces.r.white.path,
+                surfaces.r.pial.path,
+            ]
+            subprocess.run(r_v2s_cmd, check=True)
+
+            r_metricmask_cmd = [
+                'wb_command',
+                '-metric-mask',
+                r_out_gifti,
+                medial_wall['r'],
+                r_out_gifti
+            ]
+            subprocess.run(r_metricmask_cmd, check=True)
+
+            create_cifti_cmd = [
+                'wb_command',
+                '-cifti-create-dense-timeseries',
+                cifti_out,
+                '-left-metric',
+                l_out_gifti,
+                '-roi-left',
+                medial_wall['l'],
+                '-right-metric',
+                r_out_gifti,
+                '-roi-right',
+                medial_wall['r'],
+            ]
+            subprocess.run(create_cifti_cmd, check=True)
+        cifti_outs.append(cifti_out)
+    return cifti_outs
