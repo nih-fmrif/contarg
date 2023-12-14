@@ -32,7 +32,6 @@ dependencies = [
   'click >= 8.1.3',
   'niworkflows >= 1.7.1',
   'six >= 1.16.0',
-  'fmriprep ~= 22.1.1',
   'templateflow >= 23.0.0',
   'kneed >= 0.8.2',
   'networkx >= 2.8.5'
