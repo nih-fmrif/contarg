@@ -1004,6 +1004,10 @@ def make_uncert_sims(dim, nsims, dist_std, angle_std):
     # if we want to randomly distribute points for simulation, use this code
     # model distribution as 2 dimension for deviation on surface of scalp
     # and 3 dimensions for deviation of angle
+    if nsims % 2 == 0:
+        nsims = nsims // 2
+    else:
+        nsims = (nsims + 1) // 2
     dim = 5
     simvine = MixedVine(dim)
     simvine.set_marginal(0, norm(0, dist_std))
@@ -1025,7 +1029,7 @@ def make_uncert_sims(dim, nsims, dist_std, angle_std):
 
     simvine.set_copula(4, 0, GaussianCopula(0))
     uncert_sims = simvine.rvs(nsims)
-    uncert_sims = np.vstack([[0,0,0,0,0], uncert_sims])
+    uncert_sims = np.vstack([[0,0,0,0,0], uncert_sims, -1 * uncert_sims])
     return uncert_sims
 
 def get_prob_vine(dim, dist_std, angle_std):
