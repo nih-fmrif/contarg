@@ -34,7 +34,8 @@ dependencies = [
   'six >= 1.16.0',
   'templateflow >= 23.0.0',
   'kneed >= 0.8.2',
-  'networkx >= 2.8.5'
+  'networkx >= 2.8.5',
+  'statsmodels >= 0.14.0'
 ]
 
 [project.optional-dependencies]
