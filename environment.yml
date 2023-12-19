@@ -35,3 +35,6 @@ dependencies:
     - fmm3dpy==1.0.0
     - charm_gems==1.3
     - mixedvines
+    - pybids==0.16.1
+    - fmm3dpy==1.0.0
+    - confmap

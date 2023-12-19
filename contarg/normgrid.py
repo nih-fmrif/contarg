@@ -35,7 +35,6 @@ from matplotlib.colors import Normalize
 from matplotlib.cm import ScalarMappable
 import matplotlib as mpl
 import seaborn as sns
-from confmap.confmap import BFF
 from sklearn.decomposition import PCA
 from mixedvines.mixedvine import MixedVine
 from mixedvines.copula import GaussianCopula
@@ -881,122 +880,124 @@ def calc_stimgrid(subject, src_surf_dir, surf_info_dir,
 
     # make flattend cortical fig
     if make_plots:
-        cm = BFF(surfaces.l.pial.points, surfaces.l.pial.tris)
-        cm.layout(normalize=False)
-        lp_triangulation = tri.Triangulation(cm.image.vertices[:,0], cm.image.vertices[:,1], triangles=cm.image.faces, mask=~lp_tri_stim_mask)
-
-        cm_maybe_gyrus_points = cm.image.vertices[maybe_gyrus_idxs]
-        cm_maybe_sw_points = cm.image.vertices[maybe_sw_idxs]
-        cm_sulc_near_0 = cm.image.vertices[stim_roi.idxs][(l_sulc[stim_roi.idxs] > -2) & (l_sulc[stim_roi.idxs] < 2)]
-
-        pca = PCA(2, random_state=0)
-        _ = pca.fit(cm.image.vertices[np.unique(lp_triangulation.get_masked_triangles())][:, :2])
-        flat_verts = pca.transform(cm.image.vertices[:, :2])
-
-        cm_roi_points = cm.image.vertices[np.unique(lp_triangulation.get_masked_triangles())]
-        oref_points = np.array([
-            [cm_roi_points[:,0].min(), (cm_roi_points[:,1].max() + cm_roi_points[:,1].min())/2],
-            [cm_roi_points[:,0].max(), (cm_roi_points[:,1].max() + cm_roi_points[:,1].min())/2],
-            [ (cm_roi_points[:,0].max() + cm_roi_points[:,0].min())/2, cm_roi_points[:,1].min()],
-            [ (cm_roi_points[:,0].max() + cm_roi_points[:,0].min())/2, cm_roi_points[:,1].max()],
-        ])
-        tref_points = pca.transform(oref_points)
-        flat_maybe_gyrus_points = pca.transform(cm.image.vertices[maybe_gyrus_idxs, :2])
-        flat_sulc_near_0 = pca.transform(cm.image.vertices[stim_roi.idxs][(l_sulc[stim_roi.idxs] > -2) & (l_sulc[stim_roi.idxs] < 2), :2])
-        flat_maybe_sw_points = pca.transform(cm.image.vertices[sw_idxs, :2])
-        # print(tref_points)
-        # print(angle_between(tref_points[5], oref_points[5,1:]))
-        # print(180 - angle_between(tref_points[5], oref_points[5,1:]))
-        # ztheta = np.pi - angle_between(tref_points[5], oref_points[5,1:]) * (np.pi / 180)
-        # rot_mat = np.array([
-        #     [np.cos(ztheta),  -np.sin(ztheta)],
-        #     [np.sin(ztheta),  np.cos(ztheta)],
+        pass
+        # TODO figure out confmap dependency mess
+        # cm = BFF(surfaces.l.pial.points, surfaces.l.pial.tris)
+        # cm.layout(normalize=False)
+        # lp_triangulation = tri.Triangulation(cm.image.vertices[:,0], cm.image.vertices[:,1], triangles=cm.image.faces, mask=~lp_tri_stim_mask)
+        #
+        # cm_maybe_gyrus_points = cm.image.vertices[maybe_gyrus_idxs]
+        # cm_maybe_sw_points = cm.image.vertices[maybe_sw_idxs]
+        # cm_sulc_near_0 = cm.image.vertices[stim_roi.idxs][(l_sulc[stim_roi.idxs] > -2) & (l_sulc[stim_roi.idxs] < 2)]
+        #
+        # pca = PCA(2, random_state=0)
+        # _ = pca.fit(cm.image.vertices[np.unique(lp_triangulation.get_masked_triangles())][:, :2])
+        # flat_verts = pca.transform(cm.image.vertices[:, :2])
+        #
+        # cm_roi_points = cm.image.vertices[np.unique(lp_triangulation.get_masked_triangles())]
+        # oref_points = np.array([
+        #     [cm_roi_points[:,0].min(), (cm_roi_points[:,1].max() + cm_roi_points[:,1].min())/2],
+        #     [cm_roi_points[:,0].max(), (cm_roi_points[:,1].max() + cm_roi_points[:,1].min())/2],
+        #     [ (cm_roi_points[:,0].max() + cm_roi_points[:,0].min())/2, cm_roi_points[:,1].min()],
+        #     [ (cm_roi_points[:,0].max() + cm_roi_points[:,0].min())/2, cm_roi_points[:,1].max()],
         # ])
-        # rot_mat
-        # tref_points = np.matmul(rot_mat, tref_points.T).T
-        # flat_verts = np.matmul(rot_mat, flat_verts.T).T
+        # tref_points = pca.transform(oref_points)
+        # flat_maybe_gyrus_points = pca.transform(cm.image.vertices[maybe_gyrus_idxs, :2])
+        # flat_sulc_near_0 = pca.transform(cm.image.vertices[stim_roi.idxs][(l_sulc[stim_roi.idxs] > -2) & (l_sulc[stim_roi.idxs] < 2), :2])
+        # flat_maybe_sw_points = pca.transform(cm.image.vertices[sw_idxs, :2])
         # # print(tref_points)
+        # # print(angle_between(tref_points[5], oref_points[5,1:]))
+        # # print(180 - angle_between(tref_points[5], oref_points[5,1:]))
+        # # ztheta = np.pi - angle_between(tref_points[5], oref_points[5,1:]) * (np.pi / 180)
+        # # rot_mat = np.array([
+        # #     [np.cos(ztheta),  -np.sin(ztheta)],
+        # #     [np.sin(ztheta),  np.cos(ztheta)],
+        # # ])
+        # # rot_mat
+        # # tref_points = np.matmul(rot_mat, tref_points.T).T
+        # # flat_verts = np.matmul(rot_mat, flat_verts.T).T
+        # # # print(tref_points)
+        # # flip_mat =  np.array([[1,0], [0,1]])
+        # # if tref_points[5,1] < 0:
+        # #     flip_mat[1,1] = -1
+        # # tref_points = np.matmul(flip_mat, tref_points.T).T
+        # # flat_verts =  np.matmul(flip_mat, flat_verts.T).T
         # flip_mat =  np.array([[1,0], [0,1]])
-        # if tref_points[5,1] < 0:
+        # if tref_points[1,0] < tref_points[0,0]:
+        #     flip_mat[0,0] = -1
+        # tref_points = np.matmul(flip_mat, tref_points.T).T
+        # flat_verts =  np.matmul(flip_mat, flat_verts.T).T
+        # flat_maybe_gyrus_points =  np.matmul(flip_mat, flat_maybe_gyrus_points.T).T
+        # flat_sulc_near_0 =  np.matmul(flip_mat, flat_sulc_near_0.T).T
+        # flat_maybe_sw_points =  np.matmul(flip_mat, flat_maybe_sw_points.T).T
+        #
+        # flip_mat =  np.array([[1,0], [0,1]])
+        # if tref_points[3,1] < tref_points[2,1]:
         #     flip_mat[1,1] = -1
         # tref_points = np.matmul(flip_mat, tref_points.T).T
         # flat_verts =  np.matmul(flip_mat, flat_verts.T).T
-        flip_mat =  np.array([[1,0], [0,1]])
-        if tref_points[1,0] < tref_points[0,0]:
-            flip_mat[0,0] = -1
-        tref_points = np.matmul(flip_mat, tref_points.T).T
-        flat_verts =  np.matmul(flip_mat, flat_verts.T).T
-        flat_maybe_gyrus_points =  np.matmul(flip_mat, flat_maybe_gyrus_points.T).T
-        flat_sulc_near_0 =  np.matmul(flip_mat, flat_sulc_near_0.T).T
-        flat_maybe_sw_points =  np.matmul(flip_mat, flat_maybe_sw_points.T).T
-
-        flip_mat =  np.array([[1,0], [0,1]])
-        if tref_points[3,1] < tref_points[2,1]:
-            flip_mat[1,1] = -1
-        tref_points = np.matmul(flip_mat, tref_points.T).T
-        flat_verts =  np.matmul(flip_mat, flat_verts.T).T
-        flat_maybe_gyrus_points =  np.matmul(flip_mat, flat_maybe_gyrus_points.T).T
-        flat_sulc_near_0 =  np.matmul(flip_mat, flat_sulc_near_0.T).T
-        flat_maybe_sw_points =  np.matmul(flip_mat, flat_maybe_sw_points.T).T
-
-        norm = Normalize(vmin=-10, vmax=10)
-        colors = mpl.colormaps.get_cmap('RdBu_r')(norm(-l_sulc[lp_triangulation.get_masked_triangles()].mean(1)))
-        mappable = ScalarMappable(cmap='RdBu_r', norm=norm)
-
-        fig, ax = plt.subplots(1)
-        triplot = ax.tripcolor(
-            flat_verts[:,0],
-            flat_verts[:,1],
-            -l_sulc[lp_triangulation.get_masked_triangles()].mean(1),
-            triangles=lp_triangulation.get_masked_triangles(),
-            cmap='RdBu_r',
-            linewidth=1,
-            vmin=-10,
-            vmax=10,
-            alpha=0.8,
-        )
-        flat_roi_points = flat_verts[np.unique(lp_triangulation.get_masked_triangles())]
-
-        print(tref_points)
-
-        ax.axis('off')
-        ax.set_xlim((flat_roi_points[:, 0].min(), flat_roi_points[:, 0].max()))
-        ax.set_ylim((flat_roi_points[:, 1].min(), flat_roi_points[:, 1].max()))
-
-
-        ax.scatter(flat_maybe_gyrus_points[:,0],
-                   flat_maybe_gyrus_points[:,1],
-                   color='red',
-                   alpha=1,
-                   s=20,
-                   label='Gyrus'
-                  )
-        ax.scatter(flat_sulc_near_0[:,0],
-                   flat_sulc_near_0[:,1],
-                   color='black',
-                   alpha=1,
-                   s=30,
-                   label='Old SW'
-                  )
-        ax.scatter(flat_maybe_sw_points[:,0],
-                   flat_maybe_sw_points[:,1],
-                   color='mediumpurple',
-                   alpha=1,
-                   s=20,
-                   label='New SW'
-                  )
-
-        ax.plot(tref_points[:2,0], tref_points[:2, 1], color='black', label='Orig x dir', linestyle="dotted", alpha=0.7)
-        ax.scatter(*tref_points[0], color='black', alpha=0.5)
-        ax.plot(tref_points[2:,0], tref_points[2:, 1], color='black', label='Orig y dir', linestyle="dashed", alpha=0.7)
-        ax.scatter(*tref_points[2], color='black', alpha=0.5)
-
-        ax.set_xlim((flat_roi_points[:, 0].min(), flat_roi_points[:, 0].max()))
-        ax.set_ylim((flat_roi_points[:, 1].min(), flat_roi_points[:, 1].max()))
-
-
-        ax.legend()
-        fig.savefig(grid_out_figs / 'flat_cortex.png')
+        # flat_maybe_gyrus_points =  np.matmul(flip_mat, flat_maybe_gyrus_points.T).T
+        # flat_sulc_near_0 =  np.matmul(flip_mat, flat_sulc_near_0.T).T
+        # flat_maybe_sw_points =  np.matmul(flip_mat, flat_maybe_sw_points.T).T
+        #
+        # norm = Normalize(vmin=-10, vmax=10)
+        # colors = mpl.colormaps.get_cmap('RdBu_r')(norm(-l_sulc[lp_triangulation.get_masked_triangles()].mean(1)))
+        # mappable = ScalarMappable(cmap='RdBu_r', norm=norm)
+        #
+        # fig, ax = plt.subplots(1)
+        # triplot = ax.tripcolor(
+        #     flat_verts[:,0],
+        #     flat_verts[:,1],
+        #     -l_sulc[lp_triangulation.get_masked_triangles()].mean(1),
+        #     triangles=lp_triangulation.get_masked_triangles(),
+        #     cmap='RdBu_r',
+        #     linewidth=1,
+        #     vmin=-10,
+        #     vmax=10,
+        #     alpha=0.8,
+        # )
+        # flat_roi_points = flat_verts[np.unique(lp_triangulation.get_masked_triangles())]
+        #
+        # print(tref_points)
+        #
+        # ax.axis('off')
+        # ax.set_xlim((flat_roi_points[:, 0].min(), flat_roi_points[:, 0].max()))
+        # ax.set_ylim((flat_roi_points[:, 1].min(), flat_roi_points[:, 1].max()))
+        #
+        #
+        # ax.scatter(flat_maybe_gyrus_points[:,0],
+        #            flat_maybe_gyrus_points[:,1],
+        #            color='red',
+        #            alpha=1,
+        #            s=20,
+        #            label='Gyrus'
+        #           )
+        # ax.scatter(flat_sulc_near_0[:,0],
+        #            flat_sulc_near_0[:,1],
+        #            color='black',
+        #            alpha=1,
+        #            s=30,
+        #            label='Old SW'
+        #           )
+        # ax.scatter(flat_maybe_sw_points[:,0],
+        #            flat_maybe_sw_points[:,1],
+        #            color='mediumpurple',
+        #            alpha=1,
+        #            s=20,
+        #            label='New SW'
+        #           )
+        #
+        # ax.plot(tref_points[:2,0], tref_points[:2, 1], color='black', label='Orig x dir', linestyle="dotted", alpha=0.7)
+        # ax.scatter(*tref_points[0], color='black', alpha=0.5)
+        # ax.plot(tref_points[2:,0], tref_points[2:, 1], color='black', label='Orig y dir', linestyle="dashed", alpha=0.7)
+        # ax.scatter(*tref_points[2], color='black', alpha=0.5)
+        #
+        # ax.set_xlim((flat_roi_points[:, 0].min(), flat_roi_points[:, 0].max()))
+        # ax.set_ylim((flat_roi_points[:, 1].min(), flat_roi_points[:, 1].max()))
+        #
+        #
+        # ax.legend()
+        # fig.savefig(grid_out_figs / 'flat_cortex.png')
     return stimgrid
 
 
