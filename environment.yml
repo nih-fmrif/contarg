@@ -24,15 +24,14 @@ dependencies:
   - pyqt=5.9.2
   - mkl=2022.0.1
   - jsonschema=4.17.3
-  - scikit-learn=1.3.2
-  - click=8.1.7
-  - jupyter=1.0.0
-  - jupyterlab=4.0.9
-  - six=1.16.0
-  - statsmodels=0.14.1
-  - seaborn=0.12.2
+  - scikit-learn
+  - click
+  - jupyter
+  - jupyterlab
+  - six
+  - statsmodels
+  - seaborn
   - pip:
     - fmm3dpy==1.0.0
     - charm_gems==1.3
     - mixedvines
-    - "--editable=git+https://github.com/Shotgunosine/tedana.git-liston_mod"
