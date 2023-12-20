@@ -22,7 +22,7 @@ from contarg.stimgrid import angle_between
 from contarg.clustering import cluster_and_plot
 from contarg.hierarchical import get_surface_cluster_stats
 import templateflow
-from contarg.smriprep import SurfaceResample
+from contarg.interfaces.smriprep import SurfaceResample
 import numpy as np
 import nibabel as nb
 import pandas as pd
