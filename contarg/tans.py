@@ -120,7 +120,7 @@ def write_headmodel_script(
 
     % run the tans_headmodels function;
 
-    tans_headmodels('{subject}','{t1w_path}',{t2w_path},'{out_dir}',Paths);
+    tans_headmodels('{subject}','{t1w_path}',{t2w_path},'{out_dir}',Paths, '');
     setenv('LD_LIBRARY_PATH', tmp_path);
     exit
 
