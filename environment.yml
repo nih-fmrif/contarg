@@ -37,4 +37,3 @@ dependencies:
     - mixedvines
     - pybids==0.16.1
     - fmm3dpy==1.0.0
-    - confmap
