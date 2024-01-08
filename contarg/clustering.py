@@ -146,7 +146,7 @@ def repdist_tree(X, X_for_connected_components, connectivity,
     if return_distance:
         distances = np.empty(n_nodes - n_samples)
 
-    not_visited = np.empty(n_nodes, dtype=np.int8, order="C")
+    not_visited = np.empty(n_nodes, dtype=bool, order="C")
 
     # recursive merge loop
     for k in range(n_samples, n_nodes):
