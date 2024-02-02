@@ -491,7 +491,7 @@ def sim_uncert(headmesh_path, settings_path, ix, coil_path, tmp_dir, out_dir, nj
         S = ((vals - mean.reshape(shape[0], shape[1], shape[2], 1)) ** 2 * weights).sum(-1)
         mts = (vals / max_magnE) * max_mt
         t = min_mt_thresh
-        m = -0.9 / (t - max_mt_thresh)
+        m = -1 / (t - max_mt_thresh)
         b = 1 - (m * max_mt_thresh)
         act_weighted_mts = mts * m + b
         act_weighted_mts[act_weighted_mts < 0] = 0
