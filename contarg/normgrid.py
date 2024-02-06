@@ -653,7 +653,8 @@ def reduce_surfaces_verts(points, idxs, minimum_distance, twobreaker=None, twobr
 def calc_stimgrid(subject, src_surf_dir, surf_info_dir,
                    headmodel_dir,
                    grid_out_dir, make_plots=True, stimroi="expandedcoleBA46",
-                   refroi= "bilateralfullSGCsphere", overwrite=False
+                   refroi= "bilateralfullSGCsphere", overwrite=False, fmriprep=False,
+                  layout=None, anat_dir=None
                   ):
 
     if subject[:4] == 'sub-':
@@ -669,8 +670,14 @@ def calc_stimgrid(subject, src_surf_dir, surf_info_dir,
 
     grid_out_figs = grid_out_dir / 'figures'
 
-
-    surfaces = load_liston_surfs(subject, src_surf_dir)
+    if fmriprep:
+        if layout is None:
+            raise ValueError("Must pass a layout if fmriprep is True")
+        if anat_dir is None:
+            raise ValueError("Must pass an anat_dir if ")
+        surfaces = load_surfaces(subject=subject, layout=layout, anat_dir=anat_dir)
+    else:
+        surfaces = load_liston_surfs(subject, src_surf_dir)
 
     scalp_path = headmodel_dir / f'm2m_{subject}/Skin.surf.gii'
     scalp_points, scalp_triangles = nb.load(scalp_path).agg_data()
@@ -689,7 +696,17 @@ def calc_stimgrid(subject, src_surf_dir, surf_info_dir,
 
 
     # load sulcus data
-    sulc_nii = surf_info_dir / f'sub-{subject}.sulc.32k_fs_LR.dscalar.nii'
+    if fmriprep:
+        sulc_nii = layout.get(
+                        subject=subject,
+                        datatype='anat',
+                        space='fsLR',
+                        density='91k',
+                        suffix='sulc',
+                        extension='.dscalar.nii'
+                    )[0].path
+    else:
+        sulc_nii = surf_info_dir / f'sub-{subject}.sulc.32k_fs_LR.dscalar.nii'
     sulc = nb.load(sulc_nii)
     sulc_dat = sulc.get_fdata()
     l_sulc = surf_data_from_cifti(sulc_dat, sulc.header.get_axis(1), 'CIFTI_STRUCTURE_CORTEX_LEFT').squeeze()
