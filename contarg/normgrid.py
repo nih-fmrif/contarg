@@ -1391,8 +1391,16 @@ def run_clusters(subject, concat_nii, clust_outdir, src_surf_dir,
     return ref_clusters, ref_ts, ref_repts, dstim_clusters, dstim_verts
 
 
-def make_uncert_surfaces(subject, src_surf_dir, uncert_dir, overwrite=False):
-    surfaces = load_liston_surfs(subject, src_surf_dir)
+def make_uncert_surfaces(subject, src_surf_dir, uncert_dir, overwrite=False, fmriprep=False,
+                  layout=None, anat_dir=None):
+    if fmriprep:
+        if layout is None:
+            raise ValueError("Must pass a layout if fmriprep is True")
+        if anat_dir is None:
+            raise ValueError("Must pass an anat_dir if ")
+        surfaces = load_surfaces(subject=subject, layout=layout, anat_dir=anat_dir, overwrite=overwrite)
+    else:
+        surfaces = load_liston_surfs(subject, src_surf_dir)
 
     medial_wall = {}
     medial_wall['l'] = templateflow.api.get(template='fsLR', density='32k', desc='nomedialwall', hemi='L')

@@ -13,7 +13,7 @@ from simnibs.simulation.petsc_solver import SolverError
 from joblib import Parallel, delayed
 import numpy as np
 import click
-from contarg.normgrid import load_liston_surfs
+from contarg.normgrid import load_liston_surfs, load_surfaces
 from contarg.stimgrid import run_opt_and_save_outputs, angle_between
 from contarg.utils import surf_data_from_cifti
 import templateflow
@@ -50,20 +50,42 @@ def normgrid():
     show_default=True,
     help="Number of jobs to run in parallel to find targets",
 )
+@click.option(
+    "--surf_src",
+    type=str,
+    default='liston',
+    show_default=True,
+    help='flag to indicate where data is coming from, options are liston or fmriprep')
+@click.option("--bids-dir", type=click.Path(), help="Bids directory", required=False)
+@click.option("--fmriprep-dir", type=click.Path(), help="FMRIPREP directory", required=False)
+@click.option("--anat-dir", type=click.Path(), help="contarg anat outputs directory", required=False)
 def sim_gyral_lip(headmodel_dir, searchgrid_dir, out_dir, src_surf_dir,
                   coil='MagVenture_MCF-B65.ccd', distancetoscalp=2,
-                  surf_src='liston', njobs=1):
+                  surf_src='liston', bids_dir=None, fmriprep_dir=None, anat_dir=None, njobs=1):
     HeadModel_dir = Path(headmodel_dir)
     SearchGrid_dir = Path(searchgrid_dir)
     src_surf_dir = Path(src_surf_dir)
     out_dir = Path(out_dir)
+
     try:
         m2m_dir = sorted(HeadModel_dir.glob('m2m*'))[0]
+
     except IndexError:
         raise FileNotFoundError(f"No m2m directory found in {HeadModel_dir}")
     skinsurf_path = m2m_dir / 'Skin.surf.gii'
     subject = '_'.join(m2m_dir.parts[-1].split('_')[1:])
     headmesh_path = m2m_dir / f'{subject}.msh'
+
+    # load surfaces
+    if surf_src == 'liston':
+        surfaces = load_liston_surfs(subject, src_surf_dir)
+    elif surf_src =='fmriprep':
+        if bids_dir is None or fmriprep_dir is None or anat_dir is None:
+            raise ValueError("Must specify bids_dir, fmriprep_dir, and anat_dir if surf_src is fmriprep")
+        layout = BIDSLayout(bids_dir, derivatives=fmriprep_dir)
+        surfaces = load_surfaces(subject, layout, anat_dir, overwrite=False)
+    else:
+        raise NotImplementedError
 
     cortical_points, normals = np.load((SearchGrid_dir / 'SearchGrid.npy').as_posix())
 
@@ -192,12 +214,6 @@ def sim_gyral_lip(headmodel_dir, searchgrid_dir, out_dir, src_surf_dir,
     medial_wall = {}
     medial_wall['l'] = templateflow.api.get(template='fsLR', density='32k', desc='nomedialwall', hemi='L')
     medial_wall['r'] = templateflow.api.get(template='fsLR', density='32k', desc='nomedialwall', hemi='R')
-
-    # load surfaces
-    if surf_src == 'liston':
-        surfaces = load_liston_surfs(subject, src_surf_dir)
-    else:
-        raise NotImplementedError
 
     consolidated_paths = [sim_dir / f"sub-{subject}_simulation-{sim_run_n:02d}_desc-{metric}_stat.nii.gz" for metric in
                           ['magnE', 'Ei', 'Ej', 'Ek', 'target']]
