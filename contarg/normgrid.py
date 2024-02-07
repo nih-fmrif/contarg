@@ -457,49 +457,52 @@ def load_surfaces(subject, layout, anat_dir, overwrite=False):
     for H in ['L', 'R']:
         ns = {}
         for surface in ['midthickness', 'pial', 'white', 'inflated']:
-            orig_surface = layout.get(
-                subject=subject,
-                datatype='anat',
-                hemi=H,
-                suffix=surface,
-                extension='.surf.gii'
-            )[0].path
-            current_sphere = layout.get(
-                subject=subject,
-                datatype='anat',
-                space='fsLR',
-                desc='reg',
-                hemi=H,
-                suffix='sphere',
-                extension='.surf.gii'
-            )[0].path
+            try:
+                orig_surface = layout.get(
+                    subject=subject,
+                    datatype='anat',
+                    hemi=H,
+                    suffix=surface,
+                    extension='.surf.gii'
+                )[0].path
+                current_sphere = layout.get(
+                    subject=subject,
+                    datatype='anat',
+                    space='fsLR',
+                    desc='reg',
+                    hemi=H,
+                    suffix='sphere',
+                    extension='.surf.gii'
+                )[0].path
 
-            new_sphere = templateflow.api.get(
-                "fsLR",
-                hemi=H,
-                density="32k",
-                suffix="sphere",
-                extension="surf.gii",
-                space=None
-            ).as_posix()
-            new_surf_ents = layout.parse_file_entities(orig_surface)
-            new_surf_ents['space'] = 'fsLR'
-            new_surface = Path(layout.build_path(new_surf_ents, path_patterns=GII_PATTERN, scope='derivatives',
-                                                 strict=False, validate=False, absolute_paths=False)).parts[-1]
-            new_surface = anat_out_dir / new_surface
-            if not new_surface.exists() or overwrite:
-                surfresample = SurfaceResample(
-                    surface_in = orig_surface,
-                    current_sphere=current_sphere,
-                    new_sphere=new_sphere,
-                    method='BARYCENTRIC',
-                    surface_out=new_surface
-                )
-                res = surfresample.run(cwd = anat_out_dir)
-            points, triangles = nb.load(new_surface).agg_data()
-            G = graph_from_triangles(triangles)
-            surf = Surface(new_surface, points, triangles, G, np.arange(len(points)).astype(int))
-            ns[surface]=surf
+                new_sphere = templateflow.api.get(
+                    "fsLR",
+                    hemi=H,
+                    density="32k",
+                    suffix="sphere",
+                    extension="surf.gii",
+                    space=None
+                ).as_posix()
+                new_surf_ents = layout.parse_file_entities(orig_surface)
+                new_surf_ents['space'] = 'fsLR'
+                new_surface = Path(layout.build_path(new_surf_ents, path_patterns=GII_PATTERN, scope='derivatives',
+                                                     strict=False, validate=False, absolute_paths=False)).parts[-1]
+                new_surface = anat_out_dir / new_surface
+                if not new_surface.exists() or overwrite:
+                    surfresample = SurfaceResample(
+                        surface_in = orig_surface,
+                        current_sphere=current_sphere,
+                        new_sphere=new_sphere,
+                        method='BARYCENTRIC',
+                        surface_out=new_surface
+                    )
+                    res = surfresample.run(cwd = anat_out_dir)
+                points, triangles = nb.load(new_surface).agg_data()
+                G = graph_from_triangles(triangles)
+                surf = Surface(new_surface, points, triangles, G, np.arange(len(points)).astype(int))
+                ns[surface]=surf
+            except IndexError:
+                ns[surface]=[]
         tmpsurfaces[H] = ns
 
     # load surface data structure
