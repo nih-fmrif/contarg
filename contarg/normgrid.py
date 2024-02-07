@@ -704,7 +704,7 @@ def calc_stimgrid(subject, src_surf_dir, surf_info_dir,
                         subject=subject,
                         datatype='anat',
                         space='fsLR',
-                        density='91k',
+                        den='91k',
                         suffix='sulc',
                         extension='.dscalar.nii'
                     )[0].path
