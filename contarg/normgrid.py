@@ -40,6 +40,7 @@ from mixedvines.mixedvine import MixedVine
 from mixedvines.copula import GaussianCopula
 from scipy.stats import norm
 from scipy import stats
+import bids
 
 
 GII_PATTERN = ['sub-{subject}[/ses-{session}]/{datatype<anat>|anat}/sub-{subject}[_ses-{session}][_task-{task}][_acq-{acquisition}][_ce-{ceagent}][_rec-{reconstruction}][_run-{run}][_hemi-{hemi}][_space-{space}][_den-{density}][_desc-{desc}][_part-{part}]_{suffix<T1w|T2w|T2star|T2starw|FLAIR|FLASH|PD|PDw|PDT2|inplaneT[12]|angio|curv|inflated|midthickness|pial|sulc|thickness|white|mask>}{extension<.nii|.nii.gz|.surf.gii|.shape.gii>}']
@@ -452,6 +453,8 @@ def load_surfaces(subject, layout, anat_dir, overwrite=False):
     anat_dir = Path(anat_dir)
     anat_out_dir = anat_dir / f'sub-{subject}/anat'
     anat_out_dir.mkdir(exist_ok=True, parents=True)
+    if isinstance(layout,str):
+                layout = bids.BIDSLayout( database_path=layout)
     # transform surface to fsLR
     tmpsurfaces = {}
     for H in ['L', 'R']:
@@ -463,13 +466,14 @@ def load_surfaces(subject, layout, anat_dir, overwrite=False):
                     datatype='anat',
                     hemi=H,
                     suffix=surface,
+                    space=None,
                     extension='.surf.gii'
                 )[0].path
                 current_sphere = layout.get(
                     subject=subject,
                     datatype='anat',
                     space='fsLR',
-                    desc='reg',
+                    desc='msmsulc',
                     hemi=H,
                     suffix='sphere',
                     extension='.surf.gii'
@@ -678,7 +682,7 @@ def calc_stimgrid(subject, src_surf_dir, surf_info_dir,
             raise ValueError("Must pass a layout if fmriprep is True")
         if anat_dir is None:
             raise ValueError("Must pass an anat_dir if ")
-        surfaces = load_surfaces(subject=subject, layout=layout, anat_dir=anat_dir)
+        surfaces = load_surfaces(subject=subject, layout=layout,overwrite=overwrite, anat_dir=anat_dir)
     else:
         surfaces = load_liston_surfs(subject, src_surf_dir)
 
@@ -1225,7 +1229,10 @@ def run_clusters(subject, concat_nii, clust_outdir, src_surf_dir,
                  refroi='bilateralfullSGCsphere',
                  stimroi='expandedcoleBA46',
                  out_prefix='',
+                 layout=None,
+                 anat_dir=None,
                  overwrite=False):
+    #load_surfaces(subject=subject, layout=layout, anat_dir=anat_dir, overwrite=overwrite)
     """
     subject : str
         subject id
@@ -1273,8 +1280,15 @@ def run_clusters(subject, concat_nii, clust_outdir, src_surf_dir,
     if not outputs_present or overwrite:
 
         # load surfaces
-        if surf_source == 'liston':
+        if surf_source == 'fmriprep':
+            if layout is None:
+                raise ValueError("Must pass a layout if fmriprep is True")
+            if anat_dir is None:
+                raise ValueError("Must pass an anat_dir if ")
+            surfaces = load_surfaces(subject=subject, layout=layout, anat_dir=anat_dir, overwrite=overwrite)
+        elif surf_source == 'liston':
             surfaces = load_liston_surfs(subject, src_surf_dir)
+        
         else:
             raise NotImplementedError
 
