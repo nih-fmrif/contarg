@@ -454,7 +454,7 @@ def load_surfaces(subject, layout, anat_dir, overwrite=False):
     anat_out_dir = anat_dir / f'sub-{subject}/anat'
     anat_out_dir.mkdir(exist_ok=True, parents=True)
     if isinstance(layout,str):
-                layout = bids.BIDSLayout( database_path=layout)
+        layout = bids.BIDSLayout( database_path=layout)
     # transform surface to fsLR
     tmpsurfaces = {}
     for H in ['L', 'R']:
