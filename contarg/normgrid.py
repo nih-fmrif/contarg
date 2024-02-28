@@ -682,7 +682,7 @@ def calc_stimgrid(subject, src_surf_dir, surf_info_dir,
             raise ValueError("Must pass a layout if fmriprep is True")
         if anat_dir is None:
             raise ValueError("Must pass an anat_dir if ")
-        surfaces = load_surfaces(subject=subject, layout=layout,overwrite=overwrite, anat_dir=anat_dir)
+        surfaces = load_surfaces(subject=subject, layout=layout, overwrite=overwrite, anat_dir=anat_dir)
     else:
         surfaces = load_liston_surfs(subject, src_surf_dir)
 
@@ -1232,7 +1232,6 @@ def run_clusters(subject, concat_nii, clust_outdir, src_surf_dir,
                  layout=None,
                  anat_dir=None,
                  overwrite=False):
-    #load_surfaces(subject=subject, layout=layout, anat_dir=anat_dir, overwrite=overwrite)
     """
     subject : str
         subject id
@@ -1254,6 +1253,10 @@ def run_clusters(subject, concat_nii, clust_outdir, src_surf_dir,
         name of the roi where stimulation will be delivered
     out_prefix : str
         string preprended to output files
+    layout : bids.layout.layout.BIDSLayout | str
+        The layout object or a path to a saved bids layout
+    anat_dir : Pathlib path | str
+        Upper level directory under which new surfaces will be saved if needed. Files will be saved to anat_dir / f'sub-{subject}/anat'
     overwrite : bool
         Should files be overwritten
     """
@@ -1288,7 +1291,6 @@ def run_clusters(subject, concat_nii, clust_outdir, src_surf_dir,
             surfaces = load_surfaces(subject=subject, layout=layout, anat_dir=anat_dir, overwrite=overwrite)
         elif surf_source == 'liston':
             surfaces = load_liston_surfs(subject, src_surf_dir)
-        
         else:
             raise NotImplementedError
 
