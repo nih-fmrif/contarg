@@ -2,12 +2,41 @@ import pandas as pd
 import numpy as np
 import nilearn as nl
 from nilearn import image, masking, maskers, plotting, datasets, connectome
+from nilearn.interfaces.fmriprep import load_confounds
 from pathlib import Path
 from .utils import iterable
 
-
+def get_nlearn_confounds(subj_mask,bold_path,confounds_strategy=None, custom_gsr=True, ndummy=None, **kwargs):
+    if confounds_strategy :
+        confounds,sample_mask = load_confounds(bold_path,strategy=confounds_strategy, **kwargs)
+        if 'global_signal' in confounds_strategy:
+            return confounds.to_numpy(),sample_mask # This will override custom_gsr and ndummy
+        elif custom_gsr:
+            gs_masker = nl.maskers.NiftiMasker(mask_img=subj_mask)
+            confounds.loc[:,'gs'] = gs_masker.fit_transform(bold_path).mean(1).reshape(-1, 1)
+            if ndummy :
+                sample_mask = confounds.index[ndummy:].to_numpy() # This will override the sample mask
+            return confounds.to_numpy(),sample_mask
+        else :
+            return confounds.to_numpy(),sample_mask
+    else :
+        gs_masker = nl.maskers.NiftiMasker(mask_img=subj_mask)
+        confounds = gs_masker.fit_transform(bold_path).mean(1).reshape(-1, 1)
+        _,sample_mask = load_confounds(bold_path,strategy=["non_steady_state"]) # This is just to get the non-steady in the same format.
+        if ndummy :
+                sample_mask = confounds.index[ndummy:].to_numpy() # This will override the sample mask
+        
+        return confounds, sample_mask
+    
 def get_ref_vox_con(
-    bold_path, mask_path, refroi_path, tr, out_path=None, smoothing_fwhm=4.0
+    bold_path, 
+    mask_path, 
+    refroi_path, 
+    tr, 
+    out_path=None, 
+    smoothing_fwhm=4.0, 
+    confounds_strategy=None, 
+    **kwargs
 ):
     """
     Get the voxel wise connectivity map of a passed bold image with the reference roi.
@@ -26,6 +55,7 @@ def get_ref_vox_con(
         Path to write connectivity map to
     smoothing_fwhm : float default 4.0
         FWHM of gaussian smoothing to be applied
+    confounds : 
 
     """
     if not iterable(bold_path):
@@ -34,9 +64,10 @@ def get_ref_vox_con(
         bold_paths = bold_path
 
     subj_mask = nl.image.load_img(mask_path)
+    print(refroi_path)
     ref_mask = nl.image.load_img(refroi_path)
     masked_ref_mask = nl.masking.apply_mask(ref_mask, subj_mask)
-    gs_masker = nl.maskers.NiftiMasker(mask_img=subj_mask)
+    #gs_masker = nl.maskers.NiftiMasker(mask_img=subj_mask)
     subj_masker = nl.maskers.NiftiMasker(
         mask_img=subj_mask,
         low_pass=0.1,
@@ -48,8 +79,9 @@ def get_ref_vox_con(
     # process each run
     clean_tses = []
     for bold_path in bold_paths:
-        gs = gs_masker.fit_transform(bold_path).mean(1).reshape(-1, 1)
-        cleaned = subj_masker.fit_transform(bold_path, confounds=gs)
+        #gs = gs_masker.fit_transform(bold_path).mean(1).reshape(-1, 1)
+        confounds,sample_mask = get_nlearn_confounds(subj_mask,bold_path,confounds_strategy=confounds_strategy, custom_gsr=True, **kwargs)
+        cleaned = subj_masker.fit_transform(bold_path, confounds=confounds, sample_mask=sample_mask) # Add the confounds from nilearn.interfaces.fmriprep.load_confounds
         clean_tses.append(cleaned)
     cat_clean_tses = np.vstack(clean_tses)
     ref_ts = cat_clean_tses[:, masked_ref_mask.astype(bool)].mean(1).reshape(-1, 1)
@@ -70,6 +102,8 @@ def get_seedmap_vox_con(
     tr,
     out_path=None,
     smoothing_fwhm=4.0,
+    confounds_strategy=None, 
+    **kwargs
 ):
     """
     Get the representative time series of a passed bold image based on a seedmap.
@@ -113,8 +147,9 @@ def get_seedmap_vox_con(
     # process each run
     clean_tses = []
     for bold_path in bold_paths:
-        gs = gs_masker.fit_transform(bold_path).mean(1).reshape(-1, 1)
-        cleaned = subj_masker.fit_transform(bold_path, confounds=gs)[n_dummy:]
+        #gs = gs_masker.fit_transform(bold_path).mean(1).reshape(-1, 1)
+        confounds,sample_mask = get_nlearn_confounds(subj_mask,bold_path,confounds_strategy=confounds_strategy, ndummy=n_dummy,custom_gsr=True, **kwargs)
+        cleaned = subj_masker.fit_transform(bold_path, confounds=confounds, sample_mask=sample_mask) #[n_dummy:] # Add the confounds from nilearn.interfaces.fmriprep.load_confounds Should already remove the dummys if sample_mask works.
         clean_tses.append(cleaned)
     cat_clean_tses = np.vstack(clean_tses)
     seedmap_ts = np.average(cat_clean_tses, axis=1, weights=masked_seedmap)
