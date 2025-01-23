@@ -169,7 +169,7 @@ hull using Mango.
        -expr 'and(a,b)'  \
        -prefix expandedcoleBA46masked_space-MNI152NLin6Asym_res-02.nii.gz -overwrite
        
-# V1 spherical seed
+# V1 spherical seed at 2, -82, 5
 3dcalc -a ~/.cache/templateflow/tpl-MNI152NLin6Asym/tpl-MNI152NLin6Asym_res-02_T1w.nii.gz   \
        -overwrite -expr 'step(100-(x+2)*(x+2)-(y-82)*(y-82)-(z-5)*(z-5))' \
        -prefix V1sphere_space-MNI152NLin6Asym_res-02.nii.gz
